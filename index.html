@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<!-- 不動産取引システム v0.1.2 / 差分仕様書 v0.1（承認②: 2026-09-05）に基づく -->
+<!-- 不動産取引システム v0.2.0 / 差分仕様書 v0.1（承認②: 2026-09-05）に基づく。横展開レイアウト（承認③: 2026-09-05） -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>不動産取引システム</title>
@@ -101,12 +101,43 @@
   .tab-panel{ display:none; }
   .tab-panel.active{ display:block; }
 
+  /* ---- v0.2.0案（改訂）: 見出しを左・項目を右に展開する「項目グリッド」
+         4列(≥1200px) / 3列(900-1199px) / 2列(600-899px) / 1列(<600px) ---- */
+  .run-grid{
+    display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:10px 16px; align-items:start;
+  }
+  @media (max-width:1199px){ .run-grid{ grid-template-columns:repeat(3, minmax(0,1fr)); } }
+  @media (max-width:899px){ .run-grid{ grid-template-columns:repeat(2, minmax(0,1fr)); } }
+  @media (max-width:599px){ .run-grid{ grid-template-columns:1fr; } }
+  .run-grid > .rows-block,
+  .run-grid > .rows-wrap,
+  .run-grid > .field-row-wide{ grid-column:1 / -1; min-width:0; }
+  .run-grid > .field-row-span2{ grid-column:span 2; min-width:0; }
+  @media (max-width:599px){
+    .run-grid > .field-row-span2{ grid-column:1 / -1; }
+  }
+
+  /* ---- グループ行: 左に見出し(220px)・右に項目グリッド（紙の重説と同じ並び） ---- */
+  .group-row{ display:flex; align-items:flex-start; gap:16px; margin:10px 0; }
+  .group-label{
+    flex:0 0 220px; width:220px; font-weight:700; font-size:0.88rem; line-height:1.4;
+    color:var(--ink); word-break:break-word; overflow-wrap:anywhere; padding-top:6px;
+  }
+  /* 全幅で残る .heading-2/.heading-3（項目を直接持たない見出し）と文字サイズ・太さ・色を揃える */
+  .group-label-2{ font-size:1rem; font-weight:700; color:var(--ink); }
+  .group-label-3{ font-size:0.92rem; font-weight:700; color:var(--ink); }
+  .group-row > .run-grid{ flex:1 1 auto; min-width:0; }
+  @media (max-width:599px){
+    .group-row{ flex-direction:column; gap:4px; margin:8px 0; }
+    .group-label{ width:100%; flex-basis:auto; padding-top:0; }
+  }
+
   /* ---- headings ---- */
   .heading{ font-family:var(--font-heading); }
   .heading-1{
     display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
     background:var(--indigo-soft); border-left:5px solid var(--indigo);
-    padding:10px 14px; border-radius:0 6px 6px 0; margin:30px 0 12px;
+    padding:8px 14px; border-radius:0 6px 6px 0; margin:20px 0 10px;
   }
   .tab-panel > .heading-1:first-child{ margin-top:4px; }
   .heading-1 .h1-badge{
@@ -115,27 +146,25 @@
     font-variant-numeric:tabular-nums;
   }
   .heading-1 .h1-title{ font-weight:700; font-size:1.1rem; color:var(--ink); }
+  /* heading-2/3 は「直下に項目を持たない、細い区切り見出し」にのみ使う */
   .heading-2{
-    font-weight:700; font-size:1rem; color:var(--ink); margin:22px 0 8px;
-    padding-bottom:6px; border-bottom:2px solid var(--line);
+    font-weight:700; font-size:1rem; color:var(--ink); margin:14px 0 6px;
+    padding-bottom:4px; border-bottom:2px solid var(--line);
   }
   .heading-3{
-    font-weight:700; font-size:0.92rem; color:var(--ink); margin:16px 0 6px;
+    font-weight:700; font-size:0.92rem; color:var(--ink); margin:10px 0 4px;
     padding-left:10px; border-left:3px solid var(--line);
   }
 
-  /* ---- field rows ---- */
+  /* ---- field rows（ラベルを欄の上に置いた小ブロック。横方向の並びは run-grid が担当） ---- */
   .field-row{
-    display:grid; grid-template-columns:300px 1fr; gap:6px 18px;
-    padding:10px 4px; border-bottom:1px solid var(--line); align-items:start;
+    display:flex; flex-direction:column; gap:4px; min-width:0;
   }
-  .field-row:last-child{ border-bottom:none; }
-  @media (max-width:720px){
-    .field-row{ grid-template-columns:1fr; gap:4px; }
-  }
-  .field-label{ font-weight:700; padding-top:8px; word-break:break-word; }
-  .field-input{ display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
-  .unit{ color:var(--muted); font-size:0.85rem; white-space:nowrap; }
+  .field-label{ font-weight:700; font-size:0.78rem; line-height:18px; word-break:break-word; overflow-wrap:anywhere; }
+  .field-input{ display:flex; align-items:center; flex-wrap:wrap; gap:8px; width:100%; }
+  .field-input > .input{ flex:1 1 0%; min-width:0; }
+  .field-input > input.input, .field-input > select.input{ height:34px; }
+  .unit{ color:var(--muted); font-size:0.85rem; white-space:nowrap; flex:0 0 auto; }
   .unit-th{ color:var(--muted); font-weight:400; }
   .note-inline{ color:var(--muted); font-size:0.78rem; }
 
@@ -148,12 +177,11 @@
   input.input, select.input{ height:38px; }
   select.input{ min-width:170px; }
   textarea.input{
-    width:100%; max-width:640px; min-height:56px; line-height:1.6; resize:vertical;
+    width:100%; min-height:64px; line-height:1.6; resize:vertical;
   }
   input.input-money, input.input-number{
-    max-width:200px; text-align:right; font-variant-numeric:tabular-nums;
+    text-align:right; font-variant-numeric:tabular-nums;
   }
-  input[type=date].input, input[type=time].input, input[type=month].input{ max-width:180px; }
   .input[readonly]{ background:var(--indigo-soft); color:var(--ink); }
   .input-checkbox{ width:18px; height:18px; }
   table.rows-table td .input{ width:100%; min-width:88px; }
@@ -208,7 +236,7 @@
 <header class="topbar">
   <div class="topbar-inner">
     <span class="brand-name">不動産取引システム</span>
-    <span class="brand-version num">v0.1.2</span>
+    <span class="brand-version num">v0.2.0</span>
   </div>
 </header>
 <main id="app"></main>
@@ -2056,19 +2084,22 @@ function renderHeading(item) {
   if (item.level === 1) {
     const m = item.text.match(/^(\d{2})(\s+)([\s\S]*)$/);
     if (m) {
-      return '<div class="heading heading-1"><span class="h1-badge">' + escapeHtml(m[1]) + '</span>' + escapeHtml(m[2]) + '<span class="h1-title">' + escapeHtml(m[3]) + '</span></div>';
+      return '<div class="heading heading-1" role="heading" aria-level="1"><span class="h1-badge">' + escapeHtml(m[1]) + '</span>' + escapeHtml(m[2]) + '<span class="h1-title">' + escapeHtml(m[3]) + '</span></div>';
     }
-    return '<div class="heading heading-1"><span class="h1-title">' + escapeHtml(item.text) + '</span></div>';
+    return '<div class="heading heading-1" role="heading" aria-level="1"><span class="h1-title">' + escapeHtml(item.text) + '</span></div>';
   }
-  if (item.level === 2) return '<div class="heading heading-2">' + escapeHtml(item.text) + '</div>';
-  return '<div class="heading heading-3">' + escapeHtml(item.text) + '</div>';
+  if (item.level === 2) return '<div class="heading heading-2" role="heading" aria-level="2">' + escapeHtml(item.text) + '</div>';
+  return '<div class="heading heading-3" role="heading" aria-level="3">' + escapeHtml(item.text) + '</div>';
 }
 
-function renderFieldRow(def) {
+function renderFieldRow(def, spanMode) {
   const value = state.deal[def.key];
   const inputHtml = renderInputForType(def, value, { scope: "deal", key: def.key });
   const unitHtml = def.unit ? ('<span class="unit">' + escapeHtml(def.unit) + '</span>') : "";
-  return '<div class="field-row"><label class="field-label" for="f_' + def.key + '">' + escapeHtml(def.label) + '</label>' +
+  let cls = "field-row";
+  if (spanMode === "wide") cls += " field-row-wide";
+  else if (spanMode === "span2") cls += " field-row-span2";
+  return '<div class="' + cls + '"><label class="field-label" for="f_' + def.key + '">' + escapeHtml(def.label) + '</label>' +
     '<div class="field-input">' + inputHtml + unitHtml + '</div></div>';
 }
 
@@ -2105,15 +2136,57 @@ function renderFixedRowsSection() {
   return '<div class="rows-wrap"><table class="rows-table"><thead>' + theadHtml + '</thead><tbody>' + bodyHtml + '</tbody></table></div>';
 }
 
+/* ---- v0.2.0案（改訂）: 見出しを左、項目を右に横展開するグルーピング描画 ---- */
+function isTextareaOnlyRun(run) {
+  return run.length > 0 && run.every(it => it.kind === "field" && it.type === "textarea");
+}
+
+function renderRunItem(item, textareaOnlyRun) {
+  if (item.kind === "rows") return renderRowsSection(item.table);
+  if (item.kind === "fixed_rows") return renderFixedRowsSection();
+  if (item.type === "textarea") return renderFieldRow(item, textareaOnlyRun ? "wide" : "span2");
+  return renderFieldRow(item, null);
+}
+
+function renderRunGrid(run, allowWide) {
+  // allowWide: 「タブ内でその項目だけ」の例外(特約事項/登記情報/05)専用。
+  // グループ行(見出しつき)の中では常に false にし、textareaは2列ぶんで並べる。
+  const textareaOnlyRun = allowWide !== false && isTextareaOnlyRun(run);
+  return '<div class="run-grid">' + run.map(it => renderRunItem(it, textareaOnlyRun)).join("") + '</div>';
+}
+
+function renderGroupRow(headingItem, run) {
+  const lvlCls = headingItem.level === 2 ? " group-label-2" : (headingItem.level === 3 ? " group-label-3" : "");
+  return '<div class="group-row"><div class="group-label' + lvlCls + '" role="heading" aria-level="' + headingItem.level + '">' + escapeHtml(headingItem.text) + '</div>' + renderRunGrid(run, false) + '</div>';
+}
+
 function renderTabPanel(tabKey) {
   const items = FIELDS_BY_TAB[tabKey] || [];
-  const html = items.map(item => {
-    if (item.kind === "heading") return renderHeading(item);
-    if (item.kind === "field") return renderFieldRow(item);
-    if (item.kind === "rows") return renderRowsSection(item.table);
-    if (item.kind === "fixed_rows") return renderFixedRowsSection();
-    return "";
-  }).join("");
+  let html = "";
+  let i = 0;
+  while (i < items.length) {
+    const item = items[i];
+    if (item.kind === "heading") {
+      if (item.level === 1) { html += renderHeading(item); i++; continue; }
+      // level2/level3: 直下に項目(見出し以外)を持たなければ「細い全幅見出し」のまま。
+      // 持つ場合は「左に見出しラベル・右に項目グリッド」の1グループ行にする。
+      const nextItem = items[i + 1];
+      const hasContent = !!nextItem && nextItem.kind !== "heading";
+      if (!hasContent) { html += renderHeading(item); i++; continue; }
+      const run = [];
+      let j = i + 1;
+      while (j < items.length && items[j].kind !== "heading") { run.push(items[j]); j++; }
+      html += renderGroupRow(item, run);
+      i = j;
+      continue;
+    }
+    // 見出しを直接持たない項目の並び（タブ先頭 or level1直下）は、そのまま項目グリッドのみ。
+    const run = [];
+    let j = i;
+    while (j < items.length && items[j].kind !== "heading") { run.push(items[j]); j++; }
+    html += renderRunGrid(run);
+    i = j;
+  }
   return '<div class="tab-panel" id="tabpanel-' + tabKey + '" data-tab="' + tabKey + '">' + html + '</div>';
 }
 
