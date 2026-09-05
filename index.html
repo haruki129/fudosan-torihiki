@@ -1,0 +1,2630 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<!-- 不動産取引システム v0.1.2 / 差分仕様書 v0.1（承認②: 2026-09-05）に基づく -->
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>不動産取引システム</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=Zen+Kaku+Gothic+New:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F6F7F5;
+    --surface:#FFFFFF;
+    --ink:#1F2A24;
+    --muted:#6B7570;
+    --line:#D9DED9;
+    --indigo:#2B4C7E;
+    --indigo-soft:#E4EAF3;
+    --seal:#B8433A;
+    --ok:#2F6B4F;
+    --font-heading:"Zen Kaku Gothic New","Hiragino Sans","Yu Gothic","Meiryo",sans-serif;
+    --font-body:"BIZ UDPGothic","Hiragino Sans","Yu Gothic","Meiryo",sans-serif;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--font-body);
+    font-size:15px;
+    line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3,p{ margin:0; }
+  button{ font:inherit; }
+  table{ border-collapse:collapse; border-spacing:0; }
+  .num{ font-variant-numeric:tabular-nums; }
+
+  /* ---- layout shells ---- */
+  .container{ max-width:1120px; margin:0 auto; padding:20px; }
+  header.topbar{ background:var(--surface); border-bottom:1px solid var(--line); }
+  .topbar-inner{ max-width:1120px; margin:0 auto; padding:16px 20px; display:flex; align-items:baseline; gap:10px; }
+  .brand-name{ font-family:var(--font-heading); font-weight:700; font-size:1.25rem; color:var(--ink); }
+  .brand-version{ color:var(--muted); font-size:0.8rem; font-variant-numeric:tabular-nums; }
+
+  /* ---- buttons ---- */
+  .btn{
+    font-family:var(--font-body); font-weight:700; font-size:0.9rem;
+    padding:10px 18px; border-radius:8px; border:1px solid var(--line);
+    background:var(--surface); color:var(--ink); cursor:pointer;
+    transition:background .15s ease, border-color .15s ease, color .15s ease;
+  }
+  .btn:hover{ background:var(--indigo-soft); }
+  .btn-primary{ background:var(--indigo); border-color:var(--indigo); color:#fff; }
+  .btn-primary:hover{ background:#243f68; border-color:#243f68; }
+  .btn-danger{ background:var(--seal); border-color:var(--seal); color:#fff; }
+  .btn-danger:hover{ background:#973530; border-color:#973530; }
+  .btn-ghost{ background:transparent; }
+  .btn-sm{ padding:6px 12px; font-size:0.8rem; border-radius:6px; }
+  .btn-add{ margin-top:8px; }
+
+  /* ---- list screen ---- */
+  .toolbar{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px; }
+  .empty-msg{ color:var(--muted); text-align:center; padding:60px 20px; font-size:1rem; }
+  .rows-wrap{ overflow-x:auto; border:1px solid var(--line); border-radius:10px; background:var(--surface); }
+  table.list-table{ width:100%; min-width:max-content; }
+  table.rows-table{ width:100%; table-layout:fixed; }
+  table.list-table th, table.list-table td,
+  table.rows-table th, table.rows-table td{
+    border-bottom:1px solid var(--line); padding:10px 14px; text-align:left; white-space:nowrap;
+  }
+  table.list-table thead th, table.rows-table thead th{
+    background:var(--indigo-soft); color:var(--ink); font-weight:700; font-size:0.85rem;
+  }
+  table.list-table tbody tr:last-child td, table.rows-table tbody tr:last-child td{ border-bottom:none; }
+  tr.list-row{ cursor:pointer; }
+  tr.list-row:hover{ background:var(--indigo-soft); }
+  td.muted{ color:var(--muted); }
+  td.small{ font-size:0.8rem; }
+  td.col-action, th.col-action{ white-space:nowrap; }
+
+  /* ---- rows-table: 見出しの折返しと、狭幅での崩れ対策 ---- */
+  table.rows-table thead th{ white-space:normal; overflow-wrap:anywhere; }
+  @media (max-width:1079px){
+    table.rows-table{ table-layout:auto; min-width:max-content; }
+  }
+
+  /* ---- tabs ---- */
+  .tabbar{ position:sticky; top:0; z-index:20; background:var(--surface); border-bottom:1px solid var(--line); }
+  .tabbar-inner{ max-width:1120px; margin:0 auto; padding:8px 20px 0; display:flex; gap:4px; overflow-x:auto; }
+  .tab-btn{
+    font-family:var(--font-heading); font-weight:700; font-size:0.92rem; white-space:nowrap;
+    padding:10px 16px; border:none; background:transparent; color:var(--muted);
+    border-radius:8px 8px 0 0; cursor:pointer;
+  }
+  .tab-btn:hover{ color:var(--ink); }
+  .tab-btn.active{ background:var(--indigo-soft); color:var(--indigo); }
+
+  .tabpanels{ max-width:1120px; margin:0 auto; padding:20px 20px 120px; }
+  .tab-panel{ display:none; }
+  .tab-panel.active{ display:block; }
+
+  /* ---- headings ---- */
+  .heading{ font-family:var(--font-heading); }
+  .heading-1{
+    display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
+    background:var(--indigo-soft); border-left:5px solid var(--indigo);
+    padding:10px 14px; border-radius:0 6px 6px 0; margin:30px 0 12px;
+  }
+  .tab-panel > .heading-1:first-child{ margin-top:4px; }
+  .heading-1 .h1-badge{
+    display:inline-block; background:var(--indigo); color:#fff; font-weight:700;
+    font-size:0.75rem; letter-spacing:0.04em; padding:3px 9px; border-radius:4px;
+    font-variant-numeric:tabular-nums;
+  }
+  .heading-1 .h1-title{ font-weight:700; font-size:1.1rem; color:var(--ink); }
+  .heading-2{
+    font-weight:700; font-size:1rem; color:var(--ink); margin:22px 0 8px;
+    padding-bottom:6px; border-bottom:2px solid var(--line);
+  }
+  .heading-3{
+    font-weight:700; font-size:0.92rem; color:var(--ink); margin:16px 0 6px;
+    padding-left:10px; border-left:3px solid var(--line);
+  }
+
+  /* ---- field rows ---- */
+  .field-row{
+    display:grid; grid-template-columns:300px 1fr; gap:6px 18px;
+    padding:10px 4px; border-bottom:1px solid var(--line); align-items:start;
+  }
+  .field-row:last-child{ border-bottom:none; }
+  @media (max-width:720px){
+    .field-row{ grid-template-columns:1fr; gap:4px; }
+  }
+  .field-label{ font-weight:700; padding-top:8px; word-break:break-word; }
+  .field-input{ display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+  .unit{ color:var(--muted); font-size:0.85rem; white-space:nowrap; }
+  .unit-th{ color:var(--muted); font-weight:400; }
+  .note-inline{ color:var(--muted); font-size:0.78rem; }
+
+  /* ---- inputs ---- */
+  .input{
+    font-family:var(--font-body); font-size:0.95rem; padding:8px 10px;
+    border:1px solid var(--line); border-radius:6px; background:var(--surface);
+    color:var(--ink); min-width:160px;
+  }
+  input.input, select.input{ height:38px; }
+  select.input{ min-width:170px; }
+  textarea.input{
+    width:100%; max-width:640px; min-height:56px; line-height:1.6; resize:vertical;
+  }
+  input.input-money, input.input-number{
+    max-width:200px; text-align:right; font-variant-numeric:tabular-nums;
+  }
+  input[type=date].input, input[type=time].input, input[type=month].input{ max-width:180px; }
+  .input[readonly]{ background:var(--indigo-soft); color:var(--ink); }
+  .input-checkbox{ width:18px; height:18px; }
+  table.rows-table td .input{ width:100%; min-width:88px; }
+  td.fixed-type-cell{ font-weight:700; background:var(--paper); white-space:nowrap; }
+
+  /* ---- action bar ---- */
+  .actionbar{ position:sticky; bottom:0; z-index:20; background:var(--surface); border-top:1px solid var(--line); }
+  .actionbar-inner{ max-width:1120px; margin:0 auto; padding:14px 20px; display:flex; gap:12px; justify-content:flex-end; }
+
+  /* ---- modal ---- */
+  .modal-overlay{
+    position:fixed; inset:0; background:rgba(31,42,36,0.45);
+    display:flex; align-items:center; justify-content:center; padding:20px; z-index:200;
+  }
+  .modal-box{
+    background:var(--surface); border-radius:10px; padding:24px; width:100%;
+    max-width:480px; box-shadow:0 12px 36px rgba(0,0,0,0.22);
+    max-height:88vh; overflow-y:auto;
+  }
+  .modal-box-wide{ max-width:720px; }
+  .modal-title{ font-family:var(--font-heading); font-weight:700; font-size:1.1rem; margin:0 0 12px; }
+  .modal-message{ font-size:0.92rem; line-height:1.7; margin:0 0 16px; }
+  .modal-actions{ display:flex; gap:10px; justify-content:flex-end; margin-top:18px; }
+  .backup-textarea{ width:100%; max-width:100%; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:0.76rem; white-space:pre; min-height:280px; }
+  .import-section{ margin-bottom:18px; }
+  .import-label{ display:block; font-weight:700; margin-bottom:6px; font-size:0.88rem; }
+  #import-file-input{ font-size:0.85rem; }
+
+  /* ---- toast ---- */
+  .toast{
+    position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(14px);
+    background:var(--ink); color:#fff; padding:12px 22px; border-radius:8px;
+    font-size:0.9rem; opacity:0; pointer-events:none; z-index:300; max-width:90vw;
+    box-shadow:0 8px 20px rgba(0,0,0,0.25);
+    transition:opacity .2s ease, transform .2s ease;
+  }
+  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); pointer-events:auto; }
+  .toast-ok{ background:var(--ok); }
+  .toast-error{ background:var(--seal); }
+
+  :focus-visible{ outline:2px solid var(--indigo); outline-offset:2px; }
+
+  @media (prefers-reduced-motion: reduce){
+    *, *::before, *::after{
+      animation-duration:0.001ms !important; animation-iteration-count:1 !important;
+      transition-duration:0.001ms !important;
+    }
+  }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <span class="brand-name">不動産取引システム</span>
+    <span class="brand-version num">v0.1.2</span>
+  </div>
+</header>
+<main id="app"></main>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<div id="modal-root"></div>
+
+<script>
+"use strict";
+
+/* =========================================================================
+ * SCHEMA — docs/02_項目定義_schema.json をそのまま埋め込み。
+ * 項目名・順番・型・単位・選択肢はこの定数が唯一の正。
+ * ========================================================================= */
+const SCHEMA = {
+  "db": {
+    "name": "fudosan_torihiki_db",
+    "version": 1
+  },
+  "tables": [
+    {
+      "key": "deals",
+      "label": "取引",
+      "kind": "main"
+    },
+    {
+      "key": "city_plan_facilities",
+      "label": "都市計画施設",
+      "kind": "rows",
+      "parent": "deals"
+    },
+    {
+      "key": "far_rows",
+      "label": "建ぺい率・容積率",
+      "kind": "rows",
+      "parent": "deals"
+    },
+    {
+      "key": "front_roads",
+      "label": "前面道路",
+      "kind": "rows",
+      "parent": "deals"
+    },
+    {
+      "key": "other_private_roads",
+      "label": "対象不動産に含まれない私道",
+      "kind": "rows",
+      "parent": "deals"
+    },
+    {
+      "key": "exclusive_restrictions",
+      "label": "専有部分の制限",
+      "kind": "fixed_rows",
+      "parent": "deals",
+      "fixed": [
+        "用途制限",
+        "ペットの飼育制限",
+        "フローリングの制限",
+        "楽器の使用の制限"
+      ]
+    }
+  ],
+  "tabs": [
+    {
+      "key": "contract",
+      "label": "売買契約書"
+    },
+    {
+      "key": "confirm",
+      "label": "確認内容"
+    },
+    {
+      "key": "registry",
+      "label": "登記情報"
+    },
+    {
+      "key": "special",
+      "label": "特約事項"
+    },
+    {
+      "key": "check",
+      "label": "チェック依頼"
+    },
+    {
+      "key": "juusetsu",
+      "label": "重要事項説明書"
+    }
+  ],
+  "layout": [
+    {
+      "kind": "heading",
+      "tab": "contract",
+      "level": 1,
+      "text": "売買内容"
+    },
+    {
+      "kind": "field",
+      "tab": "contract",
+      "table": "deals",
+      "key": "body_price",
+      "label": "本体価格",
+      "type": "money",
+      "unit": "円"
+    },
+    {
+      "kind": "field",
+      "tab": "contract",
+      "table": "deals",
+      "key": "tax_amount",
+      "label": "消費税額",
+      "type": "money",
+      "unit": "円"
+    },
+    {
+      "kind": "field",
+      "tab": "contract",
+      "table": "deals",
+      "key": "price",
+      "label": "売買価格",
+      "type": "money",
+      "unit": "円",
+      "computed": "body_price + tax_amount",
+      "readonly": true
+    },
+    {
+      "kind": "field",
+      "tab": "contract",
+      "table": "deals",
+      "key": "contract_date",
+      "label": "売買契約日",
+      "type": "date"
+    },
+    {
+      "kind": "field",
+      "tab": "contract",
+      "table": "deals",
+      "key": "deposit",
+      "label": "手付金",
+      "type": "money",
+      "unit": "円"
+    },
+    {
+      "kind": "field",
+      "tab": "contract",
+      "table": "deals",
+      "key": "penalty",
+      "label": "違約金",
+      "type": "money",
+      "unit": "円"
+    },
+    {
+      "kind": "field",
+      "tab": "contract",
+      "table": "deals",
+      "key": "interim_payment",
+      "label": "中間金",
+      "type": "money",
+      "unit": "円"
+    },
+    {
+      "kind": "field",
+      "tab": "contract",
+      "table": "deals",
+      "key": "settlement_date",
+      "label": "決済約定日",
+      "type": "date"
+    },
+    {
+      "kind": "field",
+      "tab": "contract",
+      "table": "deals",
+      "key": "contract_place",
+      "label": "契約場所",
+      "type": "text"
+    },
+    {
+      "kind": "field",
+      "tab": "contract",
+      "table": "deals",
+      "key": "tax_base_date",
+      "label": "公租公課起算日",
+      "type": "select",
+      "options": [
+        "1月1日",
+        "4月1日"
+      ]
+    },
+    {
+      "kind": "field",
+      "tab": "contract",
+      "table": "deals",
+      "key": "land_transfer_consent",
+      "label": "土地譲渡承諾",
+      "type": "yesno"
+    },
+    {
+      "kind": "field",
+      "tab": "confirm",
+      "table": "deals",
+      "key": "revenue_stamp",
+      "label": "収入印紙",
+      "type": "text"
+    },
+    {
+      "kind": "field",
+      "tab": "confirm",
+      "table": "deals",
+      "key": "loan_use",
+      "label": "融資利用",
+      "type": "yesno"
+    },
+    {
+      "kind": "field",
+      "tab": "confirm",
+      "table": "deals",
+      "key": "loan_amount",
+      "label": "融資利用額",
+      "type": "money",
+      "unit": "円"
+    },
+    {
+      "kind": "field",
+      "tab": "confirm",
+      "table": "deals",
+      "key": "financial_institution",
+      "label": "金融機関",
+      "type": "text"
+    },
+    {
+      "kind": "field",
+      "tab": "confirm",
+      "table": "deals",
+      "key": "loan_approval_date",
+      "label": "融資承認日",
+      "type": "date"
+    },
+    {
+      "kind": "field",
+      "tab": "confirm",
+      "table": "deals",
+      "key": "cancellation_deadline",
+      "label": "解除期日",
+      "type": "date"
+    },
+    {
+      "kind": "field",
+      "tab": "confirm",
+      "table": "deals",
+      "key": "buyer_type",
+      "label": "買主種別",
+      "type": "select",
+      "options": [
+        "客付_エンド（法人）"
+      ]
+    },
+    {
+      "kind": "field",
+      "tab": "confirm",
+      "table": "deals",
+      "key": "buyer_channel",
+      "label": "買主流入経路",
+      "type": "select",
+      "options": [
+        "レインズ",
+        "社内紹介"
+      ]
+    },
+    {
+      "kind": "field",
+      "tab": "confirm",
+      "table": "deals",
+      "key": "licensed_agent",
+      "label": "宅地建物取引士",
+      "type": "text"
+    },
+    {
+      "kind": "field",
+      "tab": "confirm",
+      "table": "deals",
+      "key": "elderly_seller_deal",
+      "label": "売主の高齢者取引",
+      "type": "yesno"
+    },
+    {
+      "kind": "field",
+      "tab": "confirm",
+      "table": "deals",
+      "key": "capacity_unconfirmed_detail",
+      "label": "行為能力の確認できない内容",
+      "type": "textarea"
+    },
+    {
+      "kind": "field",
+      "tab": "confirm",
+      "table": "deals",
+      "key": "seller_loan_balance",
+      "label": "売主ローン残債",
+      "type": "money",
+      "unit": "円"
+    },
+    {
+      "kind": "field",
+      "tab": "registry",
+      "table": "deals",
+      "key": "registry_building",
+      "label": "建物",
+      "type": "textarea"
+    },
+    {
+      "kind": "field",
+      "tab": "registry",
+      "table": "deals",
+      "key": "registry_land",
+      "label": "土地",
+      "type": "textarea"
+    },
+    {
+      "kind": "field",
+      "tab": "special",
+      "table": "deals",
+      "key": "special_terms",
+      "label": "特約事項",
+      "type": "textarea"
+    },
+    {
+      "kind": "field",
+      "tab": "check",
+      "table": "deals",
+      "key": "request_date",
+      "label": "作成希望日",
+      "type": "date"
+    },
+    {
+      "kind": "field",
+      "tab": "check",
+      "table": "deals",
+      "key": "request_time",
+      "label": "時間",
+      "type": "time"
+    },
+    {
+      "kind": "field",
+      "tab": "check",
+      "table": "deals",
+      "key": "message",
+      "label": "伝達事項",
+      "type": "textarea"
+    },
+    {
+      "kind": "field",
+      "tab": "check",
+      "table": "deals",
+      "key": "flow_step",
+      "label": "フローステップ",
+      "type": "text"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 1,
+      "text": "02 都市計画法、建築基準法等の法令に基づく制限の概要"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 2,
+      "text": "（1）都市計画に基づく制限"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 3,
+      "text": "①区域区分"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "city_planning_area",
+      "label": "都市計画区域",
+      "type": "text"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "quasi_city_planning_area_designation",
+      "label": "準都市計画区域の指定",
+      "type": "text"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 3,
+      "text": "②開発行為・旧住宅地造成事業法の許可等"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "existing_land_number",
+      "label": "既存宅地番号",
+      "type": "text",
+      "unit": "号"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "permit_number",
+      "label": "許可番号",
+      "type": "text",
+      "unit": "号"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "inspection_number",
+      "label": "検査済番号",
+      "type": "text",
+      "unit": "号"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "public_notice_number",
+      "label": "公告",
+      "type": "text",
+      "unit": "号"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 3,
+      "text": "③都市計画施設"
+    },
+    {
+      "kind": "rows",
+      "tab": "juusetsu",
+      "table": "city_plan_facilities"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "urban_development_project",
+      "label": "④市街地開発事業",
+      "type": "textarea"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "city_planning_act_note",
+      "label": "都市計画法_備考",
+      "type": "textarea"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 2,
+      "text": "（2）建築法に基づく制限"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "use_district",
+      "label": "①用途地域",
+      "type": "text"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "area_district_block",
+      "label": "②地域・地区・街区",
+      "type": "text"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "building_act_note",
+      "label": "建築法_備考",
+      "type": "textarea"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 3,
+      "text": "③④ 建築面積の敷地面積に対する割合の限度（建ぺい率） と 建築物の延べ面積の敷地面積に対する割合の限度（容積率）"
+    },
+    {
+      "kind": "rows",
+      "tab": "juusetsu",
+      "table": "far_rows"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "registered_far",
+      "label": "登録の容積率（延床面積 ÷ 地積合計）",
+      "type": "percent",
+      "unit": "%"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "far_note",
+      "label": "建ぺい率・容積率_備考",
+      "type": "textarea"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 3,
+      "text": "⑤敷地等と道路との関係"
+    },
+    {
+      "kind": "rows",
+      "tab": "juusetsu",
+      "table": "front_roads"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "setback_area_reduction",
+      "label": "道路後退線（セットバック）による建築確認対象面積の減少",
+      "type": "number",
+      "unit": "㎡"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "setback_note",
+      "label": "道路後退線_備考",
+      "type": "textarea"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 3,
+      "text": "道路位置指定"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "road_designation_date",
+      "label": "位置指定年月日",
+      "type": "date"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "road_designation_number",
+      "label": "位置指定番号",
+      "type": "text",
+      "unit": "第…号"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "ordinance_restriction",
+      "label": "条例による制限",
+      "type": "text"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 3,
+      "text": "⑥私道の変更または廃止の制限"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "private_road_restriction",
+      "label": "制限",
+      "type": "yesno"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "private_road_note",
+      "label": "備考",
+      "type": "textarea"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "wall_line_restriction",
+      "label": "⑦壁面線の制限",
+      "type": "yesno"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 3,
+      "text": "⑧敷地面積の最低限度"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "min_site_area_exists",
+      "label": "限度あり",
+      "type": "yesno"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "min_site_area",
+      "label": "限度",
+      "type": "number",
+      "unit": "㎡"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "exterior_wall_setback",
+      "label": "⑨外壁後退",
+      "type": "yesno"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 3,
+      "text": "⑩建物の高さの制限"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 3,
+      "text": "1.絶対高さ制限"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "absolute_height_limit",
+      "label": "制限高さ",
+      "type": "number",
+      "unit": "m"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "road_diagonal_restriction",
+      "label": "2.道路斜線制限",
+      "type": "yesno"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "adjacent_diagonal_restriction",
+      "label": "3.隣地斜線制限",
+      "type": "yesno"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "north_diagonal_restriction",
+      "label": "4.北側斜線制限",
+      "type": "yesno"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 3,
+      "text": "⑪日影による中高層の建築物の制限"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "shadow_hours_1",
+      "label": "時間①",
+      "type": "number",
+      "unit": "時間"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "shadow_hours_2",
+      "label": "時間②",
+      "type": "number",
+      "unit": "時間"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "shadow_hours_3",
+      "label": "時間③",
+      "type": "number",
+      "unit": "時間"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "shadow_measurement_plane",
+      "label": "測定面",
+      "type": "number",
+      "unit": "m"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "shadow_note",
+      "label": "日影制限_備考",
+      "type": "textarea"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "building_agreement",
+      "label": "⑫建築協定",
+      "type": "yesno"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "local_ordinance_restriction",
+      "label": "⑬地方公共団体の条例等による制限",
+      "type": "yesno"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 2,
+      "text": "（3)都市計画法、建築基準法以外の法令に基づく制限"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 3,
+      "text": "1.土地区画整理法に基づく制限"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 3,
+      "text": "①土地区画整理事業"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "replotting_type",
+      "label": "換地種別",
+      "type": "text"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "readjustment_project_name",
+      "label": "名称",
+      "type": "text"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 3,
+      "text": "②仮換地指定"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "provisional_designation_date",
+      "label": "指定年月日",
+      "type": "date"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "provisional_designation_number",
+      "label": "指定番号",
+      "type": "text",
+      "unit": "第…号"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "replotting_block_number",
+      "label": "③（仮）換地・保留地の街区番号等",
+      "type": "text"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "replotting_disposition_notice",
+      "label": "④換地処分の公告",
+      "type": "date"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "replotting_disposition_planned",
+      "label": "(予定)",
+      "type": "checkbox"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "provisional_replotting_map",
+      "label": "⑤仮換地図等",
+      "type": "textarea"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 3,
+      "text": "⑥清算金の徴収・交付"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "settlement_money",
+      "label": "清算金",
+      "type": "yesno"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "settlement_money_amount",
+      "label": "清算金額",
+      "type": "money",
+      "unit": "円"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "settlement_money_attribution",
+      "label": "帰属先",
+      "type": "text"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 3,
+      "text": "⑦建築等の制限"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "construction_restriction_note",
+      "label": "建築等の制限_備考",
+      "type": "textarea"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "restriction_summary",
+      "label": "制限の概要",
+      "type": "textarea"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 1,
+      "text": "03 私道に関する負担金に関する事項"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 2,
+      "text": "（1）対象不動産に含まれる私道に関する負担の内容"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "burden_area",
+      "label": "負担面積",
+      "type": "number",
+      "unit": "㎡"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "burden_area_note",
+      "label": "負担面積備考",
+      "type": "textarea"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "burden_fee_exists",
+      "label": "負担金の有無",
+      "type": "yesno"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "burden_fee_other_detail",
+      "label": "その他の場合の詳細",
+      "type": "textarea"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "burden_fee_note",
+      "label": "負担金備考",
+      "type": "textarea"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "burden_general_note",
+      "label": "負担に関する備考",
+      "type": "textarea"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 2,
+      "text": "（2）対象不動産に含まれない私道に関する事項"
+    },
+    {
+      "kind": "rows",
+      "tab": "juusetsu",
+      "table": "other_private_roads"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 1,
+      "text": "04 飲用水・電気・ガスの供給施設および排水設備の整備状況"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 2,
+      "text": "①飲用水"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "water_available_facility",
+      "label": "①飲用水／直ちに利用可能な施設",
+      "type": "text"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "water_plan",
+      "label": "①飲用水／整備予定",
+      "type": "yesno"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "water_plan_ym",
+      "label": "①飲用水／整備予定年月",
+      "type": "yearmonth",
+      "unit": "頃"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "water_plan_fee",
+      "label": "①飲用水／整備負担金",
+      "type": "money",
+      "unit": "円"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "water_pipe_status",
+      "label": "①飲用水／配管等の状況",
+      "type": "textarea"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "water_note",
+      "label": "飲用水_備考",
+      "type": "textarea"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 2,
+      "text": "②電気"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "elec_available_facility",
+      "label": "②電気／直ちに利用可能な施設",
+      "type": "text"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "elec_bulk_supply",
+      "label": "②電気／一括受電方式",
+      "type": "yesno"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "elec_retailer",
+      "label": "②電気／小売事業者",
+      "type": "select",
+      "options": []
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "elec_retailer_other",
+      "label": "②電気／選択肢にない場合",
+      "type": "text"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "elec_plan",
+      "label": "②電気／整備予定",
+      "type": "yesno"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "elec_plan_ym",
+      "label": "②電気／整備予定年月",
+      "type": "yearmonth",
+      "unit": "頃"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "elec_plan_fee",
+      "label": "②電気／整備負担金",
+      "type": "money",
+      "unit": "円"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "elec_note",
+      "label": "電気_備考",
+      "type": "textarea"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 2,
+      "text": "③ガス"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "gas_available_facility",
+      "label": "③ガス／直ちに利用可能な施設",
+      "type": "text"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "gas_plan",
+      "label": "③ガス／整備予定",
+      "type": "yesno"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "gas_plan_ym",
+      "label": "③ガス／整備予定年月",
+      "type": "yearmonth",
+      "unit": "頃"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "gas_plan_fee",
+      "label": "③ガス／整備負担金",
+      "type": "money",
+      "unit": "円"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "gas_note",
+      "label": "ガス_備考",
+      "type": "textarea"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 2,
+      "text": "④排水"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "drain_other_detail",
+      "label": "④排水／他の場合、詳細",
+      "type": "textarea"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "drain_plan",
+      "label": "④排水／整備予定",
+      "type": "yesno"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "drain_plan_ym",
+      "label": "④排水／整備予定年月",
+      "type": "yearmonth",
+      "unit": "頃"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "drain_plan_fee",
+      "label": "④排水／整備負担金",
+      "type": "money",
+      "unit": "円"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "drain_note",
+      "label": "排水_備考",
+      "type": "textarea"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 1,
+      "text": "05 宅地造成または建物建築の工事完了時における形状・構造等"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "construction_completion_form",
+      "label": "宅地造成または建物建築の工事完了時における形状・構造等",
+      "type": "textarea"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 1,
+      "text": "06 一棟の建物またはその敷地に関する権利およびこれらの管理・使用に関する事項"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 2,
+      "text": "（1）敷地に関する権利の種類および内容"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 3,
+      "text": "敷地面積"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "surveyed_area",
+      "label": "実測面積",
+      "type": "number",
+      "unit": "㎡"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "registered_area",
+      "label": "登記面積",
+      "type": "number",
+      "unit": "㎡"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "building_confirmation_area",
+      "label": "建築確認の対象面積",
+      "type": "number",
+      "unit": "㎡"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "right_type",
+      "label": "権利の種類",
+      "type": "text"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "right_target_area",
+      "label": "対象面積",
+      "type": "number",
+      "unit": "㎡"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "area_basis",
+      "label": "面積根拠",
+      "type": "text"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "right_duration",
+      "label": "存続期間",
+      "type": "text"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "owner_ground_rent",
+      "label": "区分所有者の負担額（地代）",
+      "type": "money",
+      "unit": "円"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "site_right_note",
+      "label": "敷地権利_備考",
+      "type": "textarea"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 2,
+      "text": "（2）共有部分に関する規約等の定め"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "common_area_scope",
+      "label": "共有部分の範囲",
+      "type": "textarea"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "common_area_scope_bylaw",
+      "label": "管理規約",
+      "type": "text",
+      "unit": "条"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "common_share_ratio",
+      "label": "共有部の持分の割合",
+      "type": "text"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "common_share_other_detail",
+      "label": "他の場合の詳細",
+      "type": "textarea"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "common_share_bylaw",
+      "label": "管理規約",
+      "type": "text",
+      "unit": "条"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "common_area_note",
+      "label": "共有部分_備考",
+      "type": "textarea"
+    },
+    {
+      "kind": "heading",
+      "tab": "juusetsu",
+      "level": 2,
+      "text": "（3）専有部分"
+    },
+    {
+      "kind": "fixed_rows",
+      "tab": "juusetsu",
+      "table": "exclusive_restrictions"
+    },
+    {
+      "kind": "field",
+      "tab": "juusetsu",
+      "table": "deals",
+      "key": "exclusive_note",
+      "label": "専有部分_備考",
+      "type": "textarea"
+    }
+  ],
+  "row_fields": {
+    "city_plan_facilities": [
+      {
+        "key": "name",
+        "label": "名称",
+        "type": "text"
+      },
+      {
+        "key": "width",
+        "label": "幅員",
+        "type": "number",
+        "unit": "m"
+      }
+    ],
+    "far_rows": [
+      {
+        "key": "use_district",
+        "label": "用途地域",
+        "type": "text"
+      },
+      {
+        "key": "building_coverage_ratio",
+        "label": "建ぺい率（指定）",
+        "type": "percent",
+        "unit": "%"
+      },
+      {
+        "key": "floor_area_ratio",
+        "label": "容積率（指定）",
+        "type": "percent",
+        "unit": "%"
+      }
+    ],
+    "front_roads": [
+      {
+        "key": "road_type",
+        "label": "道路の種類",
+        "type": "text"
+      },
+      {
+        "key": "road_ownership",
+        "label": "公道・私道の別",
+        "type": "select",
+        "options": [
+          "公道",
+          "私道"
+        ]
+      },
+      {
+        "key": "frontage_direction",
+        "label": "接道方向",
+        "type": "text",
+        "unit": "側"
+      },
+      {
+        "key": "width",
+        "label": "幅員",
+        "type": "number",
+        "unit": "m"
+      },
+      {
+        "key": "frontage_length",
+        "label": "接道の長さ",
+        "type": "number",
+        "unit": "m"
+      }
+    ],
+    "other_private_roads": [
+      {
+        "key": "owner_address",
+        "label": "所在者住所",
+        "type": "text"
+      },
+      {
+        "key": "owner_name",
+        "label": "所在者氏名",
+        "type": "text"
+      },
+      {
+        "key": "usage_conditions",
+        "label": "利用の条件等",
+        "type": "textarea"
+      }
+    ],
+    "exclusive_restrictions": [
+      {
+        "key": "bylaw_defined",
+        "label": "規約等の定めの有無",
+        "type": "yesno"
+      },
+      {
+        "key": "bylaw",
+        "label": "管理規約",
+        "type": "text",
+        "unit": "条"
+      },
+      {
+        "key": "house_rules",
+        "label": "使用細則",
+        "type": "text",
+        "unit": "条"
+      },
+      {
+        "key": "restriction_content",
+        "label": "制限の内容",
+        "type": "textarea"
+      }
+    ]
+  },
+  "list_columns": [
+    "id",
+    "contract_date",
+    "price"
+  ],
+  "system_fields": {
+    "deals": [
+      "id",
+      "created_at",
+      "updated_at"
+    ],
+    "rows": [
+      "id",
+      "deal_id",
+      "row_no"
+    ],
+    "fixed_rows": [
+      "id",
+      "deal_id",
+      "restriction_type"
+    ]
+  }
+};
+
+/* =========================================================================
+ * 派生定数
+ * ========================================================================= */
+const ROW_TABLES = ["city_plan_facilities", "far_rows", "front_roads", "other_private_roads"];
+const FIXED_TABLE = "exclusive_restrictions";
+const ALL_STORES = ["deals", ...ROW_TABLES, FIXED_TABLE];
+
+const FIELDS_BY_TAB = {};
+SCHEMA.tabs.forEach(t => { FIELDS_BY_TAB[t.key] = []; });
+SCHEMA.layout.forEach(item => { FIELDS_BY_TAB[item.tab].push(item); });
+
+const DEAL_FIELD_DEFS = {};
+SCHEMA.layout.forEach(item => {
+  if (item.kind === "field" && item.table === "deals") DEAL_FIELD_DEFS[item.key] = item;
+});
+
+const FIXED_ORDER = SCHEMA.tables.find(t => t.key === FIXED_TABLE).fixed;
+
+const TABLE_LABELS = {};
+SCHEMA.tables.forEach(t => { TABLE_LABELS[t.key] = t.label; });
+
+/* =========================================================================
+ * アプリ状態
+ * ========================================================================= */
+const state = {
+  view: "list",        // 'list' | 'edit'
+  activeTab: "contract",
+  deal: null,
+  rows: {},             // { table: [ {..., _uid, row_no} ] }
+  fixed: [],            // [ {..., _uid, restriction_type} ] x4
+  dirty: false,
+  rowUidCounter: 1,
+};
+let db = null;
+let pendingModalAction = null;
+let toastTimer = null;
+
+/* =========================================================================
+ * ユーティリティ
+ * ========================================================================= */
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, ch => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[ch]));
+}
+
+function formatMoney(n) {
+  if (n === null || n === undefined || n === "" || isNaN(n)) return "";
+  return Number(n).toLocaleString("ja-JP");
+}
+
+function formatDateTime(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return String(iso);
+  const p = n => String(n).padStart(2, "0");
+  return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes());
+}
+
+function defaultForType(type) {
+  if (type === "money" || type === "number" || type === "percent") return null;
+  if (type === "checkbox") return false;
+  return "";
+}
+
+function autosize(el) {
+  el.style.height = "auto";
+  el.style.height = el.scrollHeight + "px";
+}
+
+/* =========================================================================
+ * データ正規化（DB から読んだ／新規作成した値を型どおりに整える）
+ * ========================================================================= */
+function normalizeDealRecord(rec) {
+  rec = rec || {};
+  const d = {
+    id: (rec.id !== undefined && rec.id !== null) ? rec.id : null,
+    created_at: rec.created_at || null,
+    updated_at: rec.updated_at || null,
+  };
+  Object.values(DEAL_FIELD_DEFS).forEach(def => {
+    let v = rec[def.key];
+    if (def.type === "money" || def.type === "number" || def.type === "percent") {
+      if (v === undefined || v === null || v === "") v = null;
+      else if (typeof v === "string") { const n = parseFloat(v.replace(/,/g, "")); v = isNaN(n) ? null : n; }
+      else if (typeof v !== "number") v = null;
+    } else if (def.type === "checkbox") {
+      v = !!v;
+    } else {
+      v = (v === undefined || v === null) ? "" : v;
+    }
+    d[def.key] = v;
+  });
+  recomputePrice(d);
+  return d;
+}
+
+function ensureRowDefaults(table, row) {
+  const defs = SCHEMA.row_fields[table];
+  const r = { ...row };
+  defs.forEach(def => {
+    let v = r[def.key];
+    if (def.type === "money" || def.type === "number" || def.type === "percent") {
+      if (v === undefined || v === null || v === "") v = null;
+      else if (typeof v === "string") { const n = parseFloat(v.replace(/,/g, "")); v = isNaN(n) ? null : n; }
+      else if (typeof v !== "number") v = null;
+    } else if (def.type === "checkbox") {
+      v = !!v;
+    } else {
+      v = (v === undefined || v === null) ? "" : v;
+    }
+    r[def.key] = v;
+  });
+  return r;
+}
+
+function recomputePrice(deal) {
+  const b = deal.body_price, t = deal.tax_amount;
+  const bEmpty = (b === null || b === undefined);
+  const tEmpty = (t === null || t === undefined);
+  if (bEmpty && tEmpty) { deal.price = null; return; }
+  deal.price = (bEmpty ? 0 : Number(b)) + (tEmpty ? 0 : Number(t));
+}
+
+function blankDeal() {
+  return normalizeDealRecord({});
+}
+
+function blankRow(table, rowNo) {
+  const r = ensureRowDefaults(table, {});
+  r.id = null;
+  r.row_no = rowNo;
+  r._uid = state.rowUidCounter++;
+  return r;
+}
+
+function blankFixedSet() {
+  return FIXED_ORDER.map(type => {
+    const r = ensureRowDefaults(FIXED_TABLE, {});
+    r.id = null;
+    r.restriction_type = type;
+    r._uid = state.rowUidCounter++;
+    return r;
+  });
+}
+
+function newDeal() {
+  state.deal = blankDeal();
+  state.rows = {};
+  ROW_TABLES.forEach(t => { state.rows[t] = [blankRow(t, 1)]; });
+  state.fixed = blankFixedSet();
+  state.dirty = false;
+  state.activeTab = "contract";
+}
+
+async function loadDeal(id) {
+  const rec = await idbGet("deals", id);
+  state.deal = normalizeDealRecord(rec || { id });
+  state.rows = {};
+  for (const table of ROW_TABLES) {
+    const all = await idbGetAllByIndex(table, "deal_id", id);
+    all.sort((a, b) => (a.row_no ?? 0) - (b.row_no ?? 0));
+    state.rows[table] = all.map(r => {
+      const nr = ensureRowDefaults(table, r);
+      nr.id = r.id;
+      nr.row_no = r.row_no ?? 0;
+      nr._uid = state.rowUidCounter++;
+      return nr;
+    });
+  }
+  const fixedAll = await idbGetAllByIndex(FIXED_TABLE, "deal_id", id);
+  state.fixed = FIXED_ORDER.map(type => {
+    const found = fixedAll.find(r => r.restriction_type === type) || {};
+    const nr = ensureRowDefaults(FIXED_TABLE, found);
+    nr.id = (found.id !== undefined) ? found.id : null;
+    nr.restriction_type = type;
+    nr._uid = state.rowUidCounter++;
+    return nr;
+  });
+  state.dirty = false;
+  state.activeTab = "contract";
+}
+
+/* =========================================================================
+ * IndexedDB
+ * ========================================================================= */
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(SCHEMA.db.name, SCHEMA.db.version);
+    req.onupgradeneeded = (e) => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains("deals")) {
+        d.createObjectStore("deals", { keyPath: "id", autoIncrement: true });
+      }
+      [...ROW_TABLES, FIXED_TABLE].forEach(name => {
+        if (!d.objectStoreNames.contains(name)) {
+          const s = d.createObjectStore(name, { keyPath: "id", autoIncrement: true });
+          s.createIndex("deal_id", "deal_id", { unique: false });
+        }
+      });
+    };
+    req.onsuccess = (e) => { db = e.target.result; resolve(db); };
+    req.onerror = (e) => { reject(e.target.error); };
+  });
+}
+
+function idbGetAll(table) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction([table], "readonly");
+    const req = tx.objectStore(table).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+function idbGet(table, id) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction([table], "readonly");
+    const req = tx.objectStore(table).get(id);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+function idbGetAllByIndex(table, indexName, value) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction([table], "readonly");
+    const idx = tx.objectStore(table).index(indexName);
+    const req = idx.getAll(IDBKeyRange.only(value));
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/* =========================================================================
+ * 描画: 一覧画面
+ * ========================================================================= */
+function showListView() {
+  state.view = "list";
+  renderList();
+}
+
+async function renderList() {
+  const app = document.getElementById("app");
+  let deals = [];
+  try { deals = await idbGetAll("deals"); }
+  catch (err) {
+    app.innerHTML = '<div class="container"><p class="empty-msg">一覧の取得に失敗しました: ' + escapeHtml(err && err.message || String(err)) + '</p></div>';
+    return;
+  }
+  deals.sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+
+  const toolbarHtml =
+    '<div class="toolbar">' +
+    '<button type="button" class="btn btn-primary" data-action="new-deal">新規作成</button>' +
+    '<button type="button" class="btn" data-action="export-backup">バックアップを書き出す</button>' +
+    '<button type="button" class="btn" data-action="import-backup-open">バックアップを読み込む</button>' +
+    '</div>';
+
+  if (deals.length === 0) {
+    app.innerHTML = '<div class="container">' + toolbarHtml +
+      '<p class="empty-msg">まだ取引がありません。「新規作成」から入力を始めてください。</p></div>';
+    return;
+  }
+
+  const rowsHtml = deals.map(d => {
+    const priceDisp = (d.price !== null && d.price !== undefined) ? (formatMoney(d.price) + "円") : "—";
+    const dateDisp = d.contract_date ? escapeHtml(d.contract_date) : "—";
+    return '<tr class="list-row" tabindex="0" data-action="open-deal" data-id="' + d.id + '">' +
+      '<td class="num">' + d.id + '</td>' +
+      '<td class="num">' + dateDisp + '</td>' +
+      '<td class="num">' + escapeHtml(priceDisp) + '</td>' +
+      '<td class="col-action"><button type="button" class="btn btn-danger btn-sm" data-action="delete-deal" data-id="' + d.id + '">削除</button></td>' +
+      '</tr>';
+  }).join("");
+
+  app.innerHTML = '<div class="container">' + toolbarHtml +
+    '<div class="rows-wrap"><table class="list-table">' +
+    '<thead><tr><th>id</th><th>売買契約日</th><th>売買価格</th><th class="col-action"></th></tr></thead>' +
+    '<tbody>' + rowsHtml + '</tbody></table></div></div>';
+}
+
+/* =========================================================================
+ * 描画: 入力画面
+ * ========================================================================= */
+function bindAttrs(bind) {
+  let a = ' data-scope="' + bind.scope + '" data-key="' + bind.key + '"';
+  if (bind.table) a += ' data-table="' + bind.table + '"';
+  if (bind.uid !== undefined) a += ' data-uid="' + bind.uid + '"';
+  if (bind.ariaLabel) a += ' aria-label="' + escapeHtml(bind.ariaLabel) + '"';
+  return a;
+}
+
+function renderInputForType(def, value, bind) {
+  const attrs = bindAttrs(bind) + ' data-type="' + def.type + '"';
+  const idAttr = (bind.scope === "deal") ? (' id="f_' + def.key + '"') : "";
+  switch (def.type) {
+    case "text":
+      return '<input type="text" class="input"' + idAttr + attrs + ' value="' + escapeHtml(value ?? "") + '">';
+    case "textarea":
+      return '<textarea class="input textarea"' + idAttr + attrs + ' rows="2">' + escapeHtml(value ?? "") + '</textarea>';
+    case "money": {
+      const disp = (value === null || value === undefined) ? "" : formatMoney(value);
+      const roAttr = def.readonly ? " readonly" : "";
+      return '<input type="text" inputmode="numeric" class="input input-money"' + idAttr + attrs + ' value="' + escapeHtml(disp) + '"' + roAttr + '>';
+    }
+    case "number":
+    case "percent":
+      return '<input type="number" step="any" class="input input-number"' + idAttr + attrs + ' value="' + ((value === null || value === undefined) ? "" : value) + '">';
+    case "date":
+      return '<input type="date" class="input"' + idAttr + attrs + ' value="' + escapeHtml(value || "") + '">';
+    case "time":
+      return '<input type="time" class="input"' + idAttr + attrs + ' value="' + escapeHtml(value || "") + '">';
+    case "yearmonth":
+      return '<input type="month" class="input"' + idAttr + attrs + ' value="' + escapeHtml(value || "") + '">';
+    case "yesno": {
+      const opts = ["", "あり", "なし"];
+      const optsHtml = opts.map(o => '<option value="' + escapeHtml(o) + '"' + (value === o ? " selected" : "") + '>' + (o === "" ? "" : escapeHtml(o)) + '</option>').join("");
+      return '<select class="input"' + idAttr + attrs + '>' + optsHtml + '</select>';
+    }
+    case "select": {
+      const options = def.options || [];
+      let optsHtml = '<option value=""' + (!value ? " selected" : "") + '></option>' +
+        options.map(o => '<option value="' + escapeHtml(o) + '"' + (value === o ? " selected" : "") + '>' + escapeHtml(o) + '</option>').join("");
+      let html = '<select class="input"' + idAttr + attrs + '>' + optsHtml + '</select>';
+      if (options.length === 0) html += '<span class="note-inline">選択肢は後日設定</span>';
+      return html;
+    }
+    case "checkbox":
+      return '<input type="checkbox" class="input-checkbox"' + idAttr + attrs + (value ? " checked" : "") + '>';
+    default:
+      return '<input type="text" class="input"' + idAttr + attrs + ' value="' + escapeHtml(value ?? "") + '">';
+  }
+}
+
+function renderHeading(item) {
+  if (item.level === 1) {
+    const m = item.text.match(/^(\d{2})(\s+)([\s\S]*)$/);
+    if (m) {
+      return '<div class="heading heading-1"><span class="h1-badge">' + escapeHtml(m[1]) + '</span>' + escapeHtml(m[2]) + '<span class="h1-title">' + escapeHtml(m[3]) + '</span></div>';
+    }
+    return '<div class="heading heading-1"><span class="h1-title">' + escapeHtml(item.text) + '</span></div>';
+  }
+  if (item.level === 2) return '<div class="heading heading-2">' + escapeHtml(item.text) + '</div>';
+  return '<div class="heading heading-3">' + escapeHtml(item.text) + '</div>';
+}
+
+function renderFieldRow(def) {
+  const value = state.deal[def.key];
+  const inputHtml = renderInputForType(def, value, { scope: "deal", key: def.key });
+  const unitHtml = def.unit ? ('<span class="unit">' + escapeHtml(def.unit) + '</span>') : "";
+  return '<div class="field-row"><label class="field-label" for="f_' + def.key + '">' + escapeHtml(def.label) + '</label>' +
+    '<div class="field-input">' + inputHtml + unitHtml + '</div></div>';
+}
+
+function renderRowsSection(table) {
+  const defs = SCHEMA.row_fields[table];
+  const rows = state.rows[table] || [];
+  const tableLabel = TABLE_LABELS[table] || table;
+  const theadHtml = '<tr>' + defs.map(d => '<th>' + escapeHtml(d.label) + (d.unit ? (' <span class="unit-th">(' + escapeHtml(d.unit) + ')</span>') : '') + '</th>').join("") +
+    '<th class="col-action"></th></tr>';
+  const bodyHtml = rows.map((row, rowIdx) => {
+    const cells = defs.map(d => '<td>' + renderInputForType(d, row[d.key], {
+      scope: "row", table: table, uid: row._uid, key: d.key,
+      ariaLabel: tableLabel + " " + (rowIdx + 1) + "行目 " + d.label
+    }) + '</td>').join("");
+    return '<tr>' + cells + '<td class="col-action"><button type="button" class="btn btn-ghost btn-sm" data-action="remove-row" data-table="' + table + '" data-uid="' + row._uid + '">この行を消す</button></td></tr>';
+  }).join("");
+  return '<div class="rows-block" id="rowsblock-' + table + '">' +
+    '<div class="rows-wrap"><table class="rows-table"><thead>' + theadHtml + '</thead><tbody>' + bodyHtml + '</tbody></table></div>' +
+    '<button type="button" class="btn btn-add" data-action="add-row" data-table="' + table + '">＋ 行を足す</button>' +
+    '</div>';
+}
+
+function renderFixedRowsSection() {
+  const defs = SCHEMA.row_fields[FIXED_TABLE];
+  const theadHtml = '<tr><th>制限種別</th>' + defs.map(d => '<th>' + escapeHtml(d.label) + (d.unit ? (' <span class="unit-th">(' + escapeHtml(d.unit) + ')</span>') : '') + '</th>').join("") + '</tr>';
+  const bodyHtml = state.fixed.map(row => {
+    const cells = '<td class="fixed-type-cell">' + escapeHtml(row.restriction_type) + '</td>' +
+      defs.map(d => '<td>' + renderInputForType(d, row[d.key], {
+        scope: "fixed", uid: row._uid, key: d.key,
+        ariaLabel: row.restriction_type + " " + d.label
+      }) + '</td>').join("");
+    return '<tr>' + cells + '</tr>';
+  }).join("");
+  return '<div class="rows-wrap"><table class="rows-table"><thead>' + theadHtml + '</thead><tbody>' + bodyHtml + '</tbody></table></div>';
+}
+
+function renderTabPanel(tabKey) {
+  const items = FIELDS_BY_TAB[tabKey] || [];
+  const html = items.map(item => {
+    if (item.kind === "heading") return renderHeading(item);
+    if (item.kind === "field") return renderFieldRow(item);
+    if (item.kind === "rows") return renderRowsSection(item.table);
+    if (item.kind === "fixed_rows") return renderFixedRowsSection();
+    return "";
+  }).join("");
+  return '<div class="tab-panel" id="tabpanel-' + tabKey + '" data-tab="' + tabKey + '">' + html + '</div>';
+}
+
+function buildEditHtml() {
+  const tabsHtml = SCHEMA.tabs.map(t => '<button type="button" class="tab-btn" data-action="tab" data-tab="' + t.key + '">' + escapeHtml(t.label) + '</button>').join("");
+  const panelsHtml = SCHEMA.tabs.map(t => renderTabPanel(t.key)).join("");
+  return '<div class="tabbar"><div class="tabbar-inner">' + tabsHtml + '</div></div>' +
+    '<div class="tabpanels">' + panelsHtml + '</div>' +
+    '<div class="actionbar"><div class="actionbar-inner">' +
+    '<button type="button" class="btn" data-action="back-to-list">一覧へ戻る</button>' +
+    '<button type="button" class="btn btn-primary" data-action="save-deal">保存</button>' +
+    '</div></div>';
+}
+
+function applyActiveTab() {
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === state.activeTab));
+  document.querySelectorAll(".tab-panel").forEach(p => p.classList.toggle("active", p.dataset.tab === state.activeTab));
+}
+function switchTab(tabKey) {
+  state.activeTab = tabKey;
+  applyActiveTab();
+}
+
+function showEditView() {
+  state.view = "edit";
+  const app = document.getElementById("app");
+  app.innerHTML = buildEditHtml();
+  applyActiveTab();
+  document.querySelectorAll("#app textarea").forEach(autosize);
+  window.scrollTo(0, 0);
+}
+
+function replaceRowsBlock(table) {
+  const el = document.getElementById("rowsblock-" + table);
+  if (el) el.outerHTML = renderRowsSection(table);
+}
+
+/* =========================================================================
+ * フィールド入力の反映
+ * ========================================================================= */
+function resolveTarget(scope, table, uid) {
+  if (scope === "deal") return state.deal;
+  if (scope === "row") return (state.rows[table] || []).find(r => String(r._uid) === String(uid));
+  if (scope === "fixed") return state.fixed.find(r => String(r._uid) === String(uid));
+  return null;
+}
+
+function parseValueForType(type, raw) {
+  switch (type) {
+    case "money": {
+      const digits = String(raw).replace(/[^0-9]/g, "");
+      if (digits === "") return null;
+      const n = parseInt(digits, 10);
+      return isNaN(n) ? null : n;
+    }
+    case "number":
+    case "percent": {
+      if (raw === "" || raw === null || raw === undefined) return null;
+      const n = parseFloat(raw);
+      return isNaN(n) ? null : n;
+    }
+    case "checkbox":
+      return !!raw;
+    default:
+      return raw;
+  }
+}
+
+function handleFieldInput(t) {
+  if (t.readOnly) return;
+  const scope = t.dataset.scope;
+  const key = t.dataset.key;
+  const type = t.dataset.type;
+  const raw = (type === "checkbox") ? t.checked : t.value;
+  const parsed = parseValueForType(type, raw);
+  const target = resolveTarget(scope, t.dataset.table, t.dataset.uid);
+  if (!target) return;
+  target[key] = parsed;
+  state.dirty = true;
+  if (scope === "deal" && (key === "body_price" || key === "tax_amount")) {
+    recomputePrice(state.deal);
+    const priceEl = document.getElementById("f_price");
+    if (priceEl) priceEl.value = (state.deal.price === null) ? "" : formatMoney(state.deal.price);
+  }
+}
+
+function onMoneyFocus(el) {
+  const o = resolveTarget(el.dataset.scope, el.dataset.table, el.dataset.uid);
+  if (!o) return;
+  const v = o[el.dataset.key];
+  el.value = (v === null || v === undefined) ? "" : String(v);
+}
+function onMoneyBlur(el) {
+  const o = resolveTarget(el.dataset.scope, el.dataset.table, el.dataset.uid);
+  if (!o) return;
+  const v = o[el.dataset.key];
+  el.value = (v === null || v === undefined) ? "" : formatMoney(v);
+}
+
+/* =========================================================================
+ * 保存・削除
+ * ========================================================================= */
+function performSave() {
+  const isNew = (state.deal.id === null || state.deal.id === undefined);
+  const now = new Date().toISOString();
+  recomputePrice(state.deal);
+  const dealToSave = { ...state.deal };
+  delete dealToSave.id;
+  dealToSave.updated_at = now;
+  dealToSave.created_at = isNew ? now : (state.deal.created_at || now);
+
+  const tx = db.transaction(ALL_STORES, "readwrite");
+  tx.oncomplete = () => { state.dirty = false; showToast("保存しました", "ok"); showListView(); };
+  tx.onerror = () => { showToast("保存に失敗しました: " + (tx.error && tx.error.message || "不明なエラー"), "error"); };
+  tx.onabort = () => { showToast("保存に失敗しました（処理が中断されました）", "error"); };
+
+  const dealsStore = tx.objectStore("deals");
+  let dealReq;
+  if (isNew) {
+    dealReq = dealsStore.add(dealToSave);
+  } else {
+    dealToSave.id = state.deal.id;
+    dealReq = dealsStore.put(dealToSave);
+  }
+
+  dealReq.onsuccess = () => {
+    const dealId = isNew ? dealReq.result : state.deal.id;
+    state.deal.id = dealId;
+    state.deal.created_at = dealToSave.created_at;
+    state.deal.updated_at = dealToSave.updated_at;
+
+    ROW_TABLES.forEach(table => {
+      const store = tx.objectStore(table);
+      const idx = store.index("deal_id");
+      const cReq = idx.openCursor(IDBKeyRange.only(dealId));
+      cReq.onsuccess = (ev) => {
+        const cursor = ev.target.result;
+        if (cursor) { cursor.delete(); cursor.continue(); }
+        else {
+          state.rows[table].forEach((row, i) => {
+            const toSave = { ...row };
+            delete toSave._uid; delete toSave.id;
+            toSave.deal_id = dealId;
+            toSave.row_no = i + 1;
+            store.add(toSave);
+          });
+        }
+      };
+    });
+
+    const fstore = tx.objectStore(FIXED_TABLE);
+    const fidx = fstore.index("deal_id");
+    const fcReq = fidx.openCursor(IDBKeyRange.only(dealId));
+    fcReq.onsuccess = (ev) => {
+      const cursor = ev.target.result;
+      if (cursor) { cursor.delete(); cursor.continue(); }
+      else {
+        state.fixed.forEach(row => {
+          const toSave = { ...row };
+          delete toSave._uid; delete toSave.id;
+          toSave.deal_id = dealId;
+          fstore.add(toSave);
+        });
+      }
+    };
+  };
+}
+
+function actuallyDeleteDeal(id) {
+  const tx = db.transaction(ALL_STORES, "readwrite");
+  tx.oncomplete = () => { showToast("削除しました", "ok"); if (state.view === "list") renderList(); };
+  tx.onerror = () => { showToast("削除に失敗しました", "error"); };
+  tx.objectStore("deals").delete(id);
+  [...ROW_TABLES, FIXED_TABLE].forEach(table => {
+    const store = tx.objectStore(table);
+    const idx = store.index("deal_id");
+    const req = idx.openCursor(IDBKeyRange.only(id));
+    req.onsuccess = (ev) => { const c = ev.target.result; if (c) { c.delete(); c.continue(); } };
+  });
+}
+
+/* =========================================================================
+ * モーダル
+ * ========================================================================= */
+function openConfirmModal(opts) {
+  pendingModalAction = opts.onConfirm;
+  const root = document.getElementById("modal-root");
+  root.innerHTML =
+    '<div class="modal-overlay"><div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modal-title">' +
+    '<h2 class="modal-title" id="modal-title">' + escapeHtml(opts.title) + '</h2>' +
+    '<p class="modal-message">' + escapeHtml(opts.message) + '</p>' +
+    '<div class="modal-actions">' +
+    '<button type="button" class="btn" data-action="modal-cancel">' + escapeHtml(opts.cancelLabel || "キャンセル") + '</button>' +
+    '<button type="button" class="btn ' + (opts.confirmClass || "btn-primary") + '" data-action="modal-confirm">' + escapeHtml(opts.confirmLabel || "OK") + '</button>' +
+    '</div></div></div>';
+  focusFirstInModal();
+}
+function closeModal() {
+  document.getElementById("modal-root").innerHTML = "";
+  pendingModalAction = null;
+}
+
+/** モーダル内の最初のフォーカス可能な要素にフォーカスを移す。 */
+function focusFirstInModal() {
+  const box = document.querySelector(".modal-box");
+  if (!box) return;
+  const list = getFocusableInModal(box);
+  if (list.length) list[0].focus();
+}
+function getFocusableInModal(box) {
+  const nodes = box.querySelectorAll('button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])');
+  return Array.from(nodes).filter(el => !el.disabled && el.offsetParent !== null);
+}
+function openDeleteModal(id) {
+  openConfirmModal({
+    title: "取引の削除",
+    message: "取引 #" + id + " を削除します。関連する行データも含めて完全に削除され、元に戻せません。よろしいですか？",
+    confirmLabel: "削除する",
+    confirmClass: "btn-danger",
+    onConfirm: () => actuallyDeleteDeal(id),
+  });
+}
+function openDiscardModal() {
+  openConfirmModal({
+    title: "変更の破棄",
+    message: "保存されていない変更があります。破棄して一覧へ戻りますか？",
+    confirmLabel: "破棄して戻る",
+    confirmClass: "btn-danger",
+    onConfirm: () => { state.dirty = false; showListView(); },
+  });
+}
+
+/* =========================================================================
+ * バックアップ（書き出し・読み込み）
+ * ========================================================================= */
+async function gatherBackupData() {
+  const data = { app: "fudosan_torihiki", schema_version: 1, exported_at: new Date().toISOString() };
+  data.deals = await idbGetAll("deals");
+  for (const t of [...ROW_TABLES, FIXED_TABLE]) data[t] = await idbGetAll(t);
+  return data;
+}
+
+function tryDownload(json) {
+  try {
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const ts = new Date().toISOString().replace(/[:.]/g, "-");
+    a.href = url;
+    a.download = "fudosan_torihiki_backup_" + ts + ".json";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  } catch (err) { /* モーダル側のテキストからの取得にフォールバック */ }
+}
+
+function openExportModal(json) {
+  const root = document.getElementById("modal-root");
+  root.innerHTML =
+    '<div class="modal-overlay"><div class="modal-box modal-box-wide" role="dialog" aria-modal="true" aria-labelledby="modal-title">' +
+    '<h2 class="modal-title" id="modal-title">バックアップ（JSON）</h2>' +
+    '<p class="modal-message">ダウンロードが始まらない場合は、下のテキストを選択してコピーしてください。</p>' +
+    '<textarea id="backup-json-text" class="input textarea backup-textarea" readonly rows="14" aria-label="バックアップJSON">' + escapeHtml(json) + '</textarea>' +
+    '<div class="modal-actions">' +
+    '<button type="button" class="btn" data-action="modal-cancel">閉じる</button>' +
+    '<button type="button" class="btn btn-primary" data-action="copy-backup-json">コピー</button>' +
+    '</div></div></div>';
+  focusFirstInModal();
+}
+
+async function performExport() {
+  try {
+    const data = await gatherBackupData();
+    const json = JSON.stringify(data, null, 2);
+    tryDownload(json);
+    openExportModal(json);
+  } catch (err) {
+    showToast("書き出しに失敗しました: " + (err && err.message || String(err)), "error");
+  }
+}
+
+async function copyBackupJson() {
+  const ta = document.getElementById("backup-json-text");
+  if (!ta) return;
+  try {
+    await navigator.clipboard.writeText(ta.value);
+    showToast("コピーしました", "ok");
+  } catch (err) {
+    try {
+      ta.focus(); ta.select();
+      const ok = document.execCommand("copy");
+      showToast(ok ? "コピーしました" : "コピーに失敗しました", ok ? "ok" : "error");
+    } catch (err2) {
+      showToast("コピーに失敗しました", "error");
+    }
+  }
+}
+
+function openImportModal() {
+  const root = document.getElementById("modal-root");
+  root.innerHTML =
+    '<div class="modal-overlay"><div class="modal-box modal-box-wide" role="dialog" aria-modal="true" aria-labelledby="modal-title">' +
+    '<h2 class="modal-title" id="modal-title">バックアップを読み込む</h2>' +
+    '<div class="import-section"><label class="import-label" for="import-file-input">ファイルを選ぶ</label>' +
+    '<input type="file" id="import-file-input" accept="application/json,.json"></div>' +
+    '<div class="import-section"><label class="import-label" for="import-paste-text">貼り付け</label>' +
+    '<textarea id="import-paste-text" class="input textarea" rows="8" placeholder="ここにバックアップのJSONを貼り付けてください"></textarea><br>' +
+    '<button type="button" class="btn btn-primary" data-action="do-import-paste" style="margin-top:8px;">貼り付けた内容を読み込む</button></div>' +
+    '<div class="modal-actions"><button type="button" class="btn" data-action="modal-cancel">閉じる</button></div>' +
+    '</div></div>';
+  const fileInput = document.getElementById("import-file-input");
+  if (fileInput) fileInput.addEventListener("change", onImportFileChange);
+  focusFirstInModal();
+}
+
+function onImportFileChange(e) {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => handleImportJsonText(String(reader.result || ""));
+  reader.onerror = () => showToast("ファイルの読み込みに失敗しました", "error");
+  reader.readAsText(file);
+}
+function doImportPaste() {
+  const ta = document.getElementById("import-paste-text");
+  if (!ta || !ta.value.trim()) { showToast("JSONを貼り付けてください", "error"); return; }
+  handleImportJsonText(ta.value);
+}
+
+function handleImportJsonText(text) {
+  let data;
+  try { data = JSON.parse(text); }
+  catch (err) { showToast("読み込みに失敗しました: JSON の形式が正しくありません（" + err.message + "）", "error"); return; }
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    showToast("読み込みに失敗しました: JSON はオブジェクト形式である必要があります", "error");
+    return;
+  }
+  importData(data).then(count => {
+    closeModal();
+    showToast(count + "件を読み込みました", "ok");
+    if (state.view === "list") renderList();
+  }).catch(err => {
+    showToast("読み込みに失敗しました: " + (err && err.message || String(err)), "error");
+  });
+}
+
+function importData(data) {
+  return new Promise((resolve, reject) => {
+    if (!data || !Array.isArray(data.deals)) { reject(new Error("deals がありません")); return; }
+    const deals = data.deals;
+    const childArrays = {};
+    ROW_TABLES.forEach(t => { childArrays[t] = Array.isArray(data[t]) ? data[t] : []; });
+    childArrays[FIXED_TABLE] = Array.isArray(data[FIXED_TABLE]) ? data[FIXED_TABLE] : [];
+
+    if (deals.length === 0) { reject(new Error("deals が0件です")); return; }
+
+    const tx = db.transaction(ALL_STORES, "readwrite");
+    let addedCount = 0;
+    tx.oncomplete = () => resolve(addedCount);
+    tx.onerror = () => reject(tx.error || new Error("データベースの書き込みに失敗しました"));
+    tx.onabort = () => reject(tx.error || new Error("読み込み処理が中断されました"));
+
+    const dealsStore = tx.objectStore("deals");
+    deals.forEach((rec, idx) => {
+      const originalId = (rec && rec.id !== undefined && rec.id !== null) ? rec.id : ("__noid_" + idx);
+      const clean = (rec && typeof rec === "object") ? { ...rec } : {};
+      delete clean.id;
+      if (!clean.created_at) clean.created_at = new Date().toISOString();
+      if (!clean.updated_at) clean.updated_at = clean.created_at;
+      const req = dealsStore.add(clean);
+      req.onsuccess = () => {
+        const newId = req.result;
+        addedCount++;
+        ROW_TABLES.forEach(table => {
+          const store = tx.objectStore(table);
+          childArrays[table].forEach(r => {
+            if (!r || r.deal_id !== originalId) return;
+            const c = { ...r };
+            delete c.id;
+            c.deal_id = newId;
+            store.add(c);
+          });
+        });
+        const fstore = tx.objectStore(FIXED_TABLE);
+        childArrays[FIXED_TABLE].forEach(r => {
+          if (!r || r.deal_id !== originalId) return;
+          const c = { ...r };
+          delete c.id;
+          c.deal_id = newId;
+          fstore.add(c);
+        });
+      };
+    });
+  });
+}
+
+/* =========================================================================
+ * トースト
+ * ========================================================================= */
+function showToast(message, type) {
+  const el = document.getElementById("toast");
+  el.textContent = message;
+  el.className = "toast show" + (type ? (" toast-" + type) : "");
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.classList.remove("show"); }, 4200);
+}
+
+/* =========================================================================
+ * イベント委譲
+ * ========================================================================= */
+document.addEventListener("click", (e) => {
+  const el = e.target.closest("[data-action]");
+  if (!el) return;
+  const action = el.dataset.action;
+  switch (action) {
+    case "new-deal": newDeal(); showEditView(); break;
+    case "open-deal": { const id = Number(el.dataset.id); loadDeal(id).then(() => showEditView()); break; }
+    case "delete-deal": { const id = Number(el.dataset.id); openDeleteModal(id); break; }
+    case "export-backup": performExport(); break;
+    case "import-backup-open": openImportModal(); break;
+    case "tab": switchTab(el.dataset.tab); break;
+    case "add-row": {
+      const table = el.dataset.table;
+      state.rows[table].push(blankRow(table, state.rows[table].length + 1));
+      state.dirty = true;
+      replaceRowsBlock(table);
+      break;
+    }
+    case "remove-row": {
+      const table = el.dataset.table;
+      const uid = el.dataset.uid;
+      state.rows[table] = state.rows[table].filter(r => String(r._uid) !== String(uid));
+      state.rows[table].forEach((r, i) => { r.row_no = i + 1; });
+      state.dirty = true;
+      replaceRowsBlock(table);
+      break;
+    }
+    case "save-deal": performSave(); break;
+    case "back-to-list": if (state.dirty) { openDiscardModal(); } else { showListView(); } break;
+    case "modal-confirm": { const fn = pendingModalAction; closeModal(); if (fn) fn(); break; }
+    case "modal-cancel": closeModal(); break;
+    case "copy-backup-json": copyBackupJson(); break;
+    case "do-import-paste": doImportPaste(); break;
+  }
+});
+
+document.addEventListener("input", (e) => {
+  const t = e.target;
+  if (t.tagName === "TEXTAREA") autosize(t);
+  if (t.dataset && t.dataset.scope) handleFieldInput(t);
+});
+document.addEventListener("change", (e) => {
+  const t = e.target;
+  if (t.dataset && t.dataset.scope) handleFieldInput(t);
+});
+document.addEventListener("focusin", (e) => {
+  if (e.target.matches && e.target.matches(".input-money")) onMoneyFocus(e.target);
+});
+document.addEventListener("focusout", (e) => {
+  if (e.target.matches && e.target.matches(".input-money")) onMoneyBlur(e.target);
+});
+document.addEventListener("keydown", (e) => {
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches && e.target.matches("tr.list-row")) {
+    e.preventDefault();
+    e.target.click();
+  }
+  if (e.key === "Escape") {
+    const root = document.getElementById("modal-root");
+    if (root && root.innerHTML.trim() !== "") closeModal();
+  }
+  if (e.key === "Tab") {
+    const box = document.querySelector(".modal-box");
+    if (!box) return;
+    const list = getFocusableInModal(box);
+    if (!list.length) return;
+    const first = list[0], last = list[list.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault(); last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault(); first.focus();
+    }
+  }
+});
+
+/* =========================================================================
+ * 起動
+ * ========================================================================= */
+window.addEventListener("DOMContentLoaded", async () => {
+  try {
+    await openDB();
+    showListView();
+  } catch (err) {
+    document.getElementById("app").innerHTML =
+      '<div class="container"><p class="empty-msg">データベースの初期化に失敗しました: ' + escapeHtml(err && err.message || String(err)) + '</p></div>';
+  }
+});
+
+/* =========================================================================
+ * テスト用フック（検証担当が使用）
+ * ========================================================================= */
+window.__app = {
+  schema: SCHEMA,
+  getDb: () => db,
+  state,
+  idbGetAll, idbGet, idbGetAllByIndex,
+  newDeal, loadDeal, performSave, actuallyDeleteDeal,
+  gatherBackupData, importData,
+  recomputePrice, formatMoney, formatDateTime,
+  showListView, showEditView, switchTab, renderList,
+};
+</script>
+</body>
+</html>
