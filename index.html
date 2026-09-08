@@ -1,12 +1,13 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<!-- 不動産取引システム v0.3.1 / docs/02_項目定義_schema_v0.3.json（FRK標準書式「一般仲介用・区分所有建物（敷地権型）」重要事項説明書 全25p 準拠）に基づく。承認③: 2026-09-08。
+<!-- 不動産取引システム v0.4.0 / docs/02_項目定義_schema_v0.3.json（FRK標準書式「一般仲介用・区分所有建物（敷地権型）」重要事項説明書 全25p 準拠）に基づく。承認③: 2026-09-08。
      v0.2.0からの引き継ぎ: 横展開レイアウト・一覧画面・保存/読込/削除カスケード/バックアップ・モーダル3種・aria対応・IndexedDBのみ・alert等不使用。
      v0.3.0で追加: SCHEMA差し替え（366 field / 15テーブル / チェックリスト3件107項目）、IndexedDB v2（既存ストア維持＋新規9ストア追加）、
      checklist描画、showif条件表示、note注記、computed複数対応（連鎖計算）、land_parcelsのmax_rows、重説タブの章ジャンプバー。
      v0.3.1で修正: 見出し二重描画・見出しとchecklistの順序逆転を解消、showifの推移的（再帰的）非表示判定、
-     select/yesnoの範囲外の旧データ値を「（旧データ）」付きで表示、land_parcelsの上限注記を常時表示。 -->
+     select/yesnoの範囲外の旧データ値を「（旧データ）」付きで表示、land_parcelsの上限注記を常時表示。
+     v0.4.0: 重要事項調査報告書の依頼書（空欄）／控え（記入済み）出力を追加。データ構造の変更なし。承認: 2026-09-08 樋口『A＋Bで実装の承認』。 -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>不動産取引システム</title>
@@ -269,16 +270,68 @@
       transition-duration:0.001ms !important;
     }
   }
+
+  /* ---- 重要事項調査報告書（印刷ビュー） v0.4.0 ---- */
+  .report-actions{ display:flex; gap:10px; flex-wrap:wrap; margin:0 0 18px; }
+
+  #report-view{ display:none; }
+  body.printing #report-view{ display:block; }
+
+  .report-doc{ max-width:720px; margin:0 auto; color:var(--ink); }
+  .report-header{ text-align:center; margin:0 0 20px; }
+  .report-title{ font-weight:700; font-size:1.2rem; margin:0 0 8px; }
+  .report-meta{ font-size:0.85rem; margin:2px 0; }
+
+  .report-h1{
+    font-weight:700; font-size:1.05rem; margin:22px 0 10px; padding-bottom:4px;
+    border-bottom:0.6pt solid var(--ink); break-inside:avoid;
+  }
+  .report-h2{ font-weight:700; font-size:0.95rem; margin:14px 0 6px; break-inside:avoid; }
+  .report-h3{
+    font-weight:700; font-size:0.86rem; margin:10px 0 4px;
+    padding-left:8px; border-left:2px solid var(--ink); break-inside:avoid;
+  }
+
+  .report-field-row{
+    display:flex; gap:10px; padding:5px 0; border-bottom:0.6pt solid var(--ink);
+    font-size:0.86rem; break-inside:avoid;
+  }
+  .report-label{ flex:0 0 42%; font-weight:700; }
+  .report-value{ flex:1 1 auto; word-break:break-word; overflow-wrap:anywhere; }
+  .report-value-text{ white-space:pre-wrap; }
+  .report-blank-line{ display:inline-block; width:100%; min-height:1em; }
+
+  .report-table{ width:100%; border-collapse:collapse; margin:6px 0 14px; font-size:0.82rem; break-inside:avoid; }
+  .report-table th, .report-table td{ border:0.6pt solid var(--ink); padding:5px 8px; text-align:left; vertical-align:top; word-break:break-word; overflow-wrap:anywhere; }
+  .report-table thead th{ font-weight:700; }
+  .report-fixed-type-cell{ font-weight:700; white-space:nowrap; }
+
+  .report-checklist{ margin:8px 0; break-inside:avoid; }
+  .report-checklist-label{ font-weight:700; font-size:0.9rem; margin-bottom:4px; }
+  .report-checklist-grid{ display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:4px 16px; font-size:0.84rem; }
+
+  .report-footer{ margin-top:24px; break-inside:avoid; }
+  .report-footer-title{ font-weight:700; font-size:0.92rem; margin-bottom:6px; }
+
+  .report-requester{ margin-top:10px; text-align:left; break-inside:avoid; }
+  .report-requester-title{ font-weight:700; font-size:0.92rem; margin-bottom:4px; }
+
+  @media print{
+    body.printing > *:not(#report-view){ display:none !important; }
+    #report-view{ display:block; }
+    @page { size: A4 portrait; margin: 14mm 12mm; }
+  }
 </style>
 </head>
 <body>
 <header class="topbar">
   <div class="topbar-inner">
     <span class="brand-name">不動産取引システム</span>
-    <span class="brand-version num">v0.3.1</span>
+    <span class="brand-version num">v0.4.0</span>
   </div>
 </header>
 <main id="app"></main>
+<div id="report-view" aria-hidden="true"></div>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <div id="modal-root"></div>
 
@@ -6031,7 +6084,12 @@ function renderTabPanel(tabKey) {
     i = j;
   }
   const jumpBarHtml = (tabKey === "juusetsu") ? buildJumpBar(jumpEntries) : "";
-  return '<div class="tab-panel" id="tabpanel-' + tabKey + '" data-tab="' + tabKey + '">' + jumpBarHtml + html + '</div>';
+  const reportActionsHtml = (tabKey === "juusetsu") ?
+    '<div class="report-actions">' +
+    '<button type="button" class="btn" data-action="report-blank">調査依頼書を出す（空欄）</button>' +
+    '<button type="button" class="btn" data-action="report-filled">調査報告書の控えを出す（記入済み）</button>' +
+    '</div>' : "";
+  return '<div class="tab-panel" id="tabpanel-' + tabKey + '" data-tab="' + tabKey + '">' + jumpBarHtml + reportActionsHtml + html + '</div>';
 }
 
 function buildEditHtml() {
@@ -6463,6 +6521,179 @@ function importData(data) {
 }
 
 /* =========================================================================
+ * 重要事項調査報告書（依頼書＝空欄／控え＝記入済み）v0.4.0
+ * 06章（一棟の建物またはその敷地に関する権利およびこれらの管理・使用に関する事項）の
+ * 項目はハードコードせず、SCHEMA.layout から機械的に抽出する。
+ * ========================================================================= */
+/** SCHEMA.layout から、重説タブの「06」見出し（level1）から次のlevel1見出しの直前までを抜き出す。
+    見出し(level2/3)も含め、順序はそのまま。キー・件数ともにハードコードしない。 */
+function collectReportItems() {
+  const layout = SCHEMA.layout;
+  let startIdx = -1;
+  for (let i = 0; i < layout.length; i++) {
+    const it = layout[i];
+    if (it.tab === "juusetsu" && it.kind === "heading" && it.level === 1 &&
+        typeof it.text === "string" && it.text.indexOf("06") === 0) {
+      startIdx = i;
+      break;
+    }
+  }
+  if (startIdx === -1) return [];
+  let endIdx = layout.length;
+  for (let i = startIdx + 1; i < layout.length; i++) {
+    if (layout[i].kind === "heading" && layout[i].level === 1) { endIdx = i; break; }
+  }
+  return layout.slice(startIdx, endIdx);
+}
+
+/** ヘッダーの物件行に使う候補キー。SCHEMAに存在し、値があるものだけを採用する。 */
+const REPORT_PROPERTY_KEYS = ["bldg_name", "bldg_room_number", "bldg_location"];
+/** フッターの管理会社記入欄に使う候補キー。SCHEMAに存在するものだけを採用する。 */
+const REPORT_FOOTER_KEYS = ["mgmt_company_name", "mgmt_company_tel", "mgmt_company_reg_number"];
+/** ヘッダーの依頼元に使う候補キー。SCHEMAに存在し、値があるものだけを採用する。 */
+const REPORT_REQUESTER_KEYS = ["agent_company_name", "agent_office_address", "agent_staff_name", "agent_staff_tel", "agent_license_number"];
+
+function reportTodayJP() {
+  const d = new Date();
+  return d.getFullYear() + "年" + (d.getMonth() + 1) + "月" + d.getDate() + "日";
+}
+
+/** <input type="date"> 由来の "YYYY-MM-DD" を「YYYY年M月D日」に整形する。 */
+function formatDateJP(v) {
+  if (!v) return "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v));
+  if (!m) return String(v);
+  return Number(m[1]) + "年" + Number(m[2]) + "月" + Number(m[3]) + "日";
+}
+
+/** 報告書の値セル整形。money=3桁区切り＋「円」、date=YYYY年M月D日、yesno=保存値そのまま、
+    number=3桁区切り＋unitがあれば付ける。それ以外の型は保存値をそのまま文字列化する。 */
+function formatReportFieldValue(def, value) {
+  if (value === null || value === undefined || value === "") return "";
+  if (def.type === "money") return formatMoney(value) + "円";
+  if (def.type === "date") return formatDateJP(value);
+  if (def.type === "yesno") return String(value);
+  if (def.type === "number") return formatMoney(value) + (def.unit || "");
+  return String(value);
+}
+
+function renderReportHeading(item) {
+  const cls = item.level === 1 ? "report-h1" : (item.level === 2 ? "report-h2" : "report-h3");
+  return '<div class="' + cls + '">' + escapeHtml(item.text) + '</div>';
+}
+
+function renderReportFieldRow(def, mode) {
+  const raw = state.deal ? state.deal[def.key] : "";
+  const disp = (mode === "filled") ? formatReportFieldValue(def, raw) : "";
+  const valueHtml = disp ?
+    ('<span class="report-value-text">' + escapeHtml(disp) + '</span>') :
+    '<span class="report-blank-line" aria-hidden="true"></span>';
+  return '<div class="report-field-row"><div class="report-label">' + escapeHtml(def.label) +
+    '</div><div class="report-value">' + valueHtml + '</div></div>';
+}
+
+function renderReportDataCell(def, row, mode) {
+  const raw = row ? row[def.key] : "";
+  const disp = (mode === "filled") ? formatReportFieldValue(def, raw) : "";
+  return '<td>' + (disp ? escapeHtml(disp) : '<span class="report-blank-line" aria-hidden="true"></span>') + '</td>';
+}
+
+/** kind: "rows" / "fixed_rows" の表を、その表の列見出しつきで出す。
+    rows は blank なら空行を3行、filled なら state.rows[table] の実データ。
+    fixed_rows は行そのもの（対象カテゴリ）がSCHEMA固定のため、常に全カテゴリ分の行を出し、
+    値セルのみ blank/filled で切り替える。 */
+function renderReportRowsTable(item, mode) {
+  const table = item.table;
+  const defs = SCHEMA.row_fields[table] || [];
+  const headCells = defs.map(d =>
+    '<th>' + escapeHtml(d.label) + (d.unit ? ('（' + escapeHtml(d.unit) + '）') : '') + '</th>'
+  ).join("");
+  let bodyHtml;
+  if (item.kind === "fixed_rows") {
+    const order = FIXED_ORDER_BY_TABLE[table] || [];
+    const dataRows = state.fixed[table] || [];
+    const headerLabel = FIXED_HEADER_LABEL[table] || "種別";
+    const theadHtml = '<th>' + escapeHtml(headerLabel) + '</th>' + headCells;
+    bodyHtml = order.map((typeLabel, idx) => {
+      const row = dataRows[idx] || null;
+      const cells = '<td class="report-fixed-type-cell">' + escapeHtml(typeLabel) + '</td>' +
+        defs.map(d => renderReportDataCell(d, row, mode)).join("");
+      return '<tr>' + cells + '</tr>';
+    }).join("");
+    return '<table class="report-table"><thead><tr>' + theadHtml + '</tr></thead><tbody>' + bodyHtml + '</tbody></table>';
+  }
+  const rows = (mode === "filled") ? (state.rows[table] || []) : [null, null, null];
+  bodyHtml = rows.map(row => '<tr>' + defs.map(d => renderReportDataCell(d, row, mode)).join("") + '</tr>').join("");
+  return '<table class="report-table"><thead><tr>' + headCells + '</tr></thead><tbody>' + bodyHtml + '</tbody></table>';
+}
+
+/** 06章には現れない想定だが、来た場合はラベル一覧を□付きで出す（チェック状態は反映しない）。 */
+function renderReportChecklist(item) {
+  const itemsHtml = (item.items || []).map(label =>
+    '<div class="report-check-item">□' + escapeHtml(label) + '</div>'
+  ).join("");
+  return '<div class="report-checklist"><div class="report-checklist-label">' + escapeHtml(item.label) + '</div>' +
+    '<div class="report-checklist-grid">' + itemsHtml + '</div></div>';
+}
+
+function buildReportHtml(mode) {
+  const deal = state.deal || {};
+  const items = collectReportItems();
+  const titleSuffix = (mode === "blank") ? "（調査依頼書）" : "（控え）";
+
+  const propertyParts = REPORT_PROPERTY_KEYS
+    .filter(k => DEAL_FIELD_DEFS[k])
+    .map(k => deal[k])
+    .filter(v => v !== null && v !== undefined && v !== "");
+  const propertyHtml = propertyParts.length ?
+    ('<div class="report-meta">物件：' + escapeHtml(propertyParts.join("　")) + '</div>') : "";
+
+  // 依頼元: 値のあるキーだけ、ラベル｜値の行として出す。依頼元は自分の情報なので
+  // mode（blank/filled）に関わらず常に値を出す（renderReportFieldRow を "filled" 固定で呼ぶ）。
+  const requesterRows = REPORT_REQUESTER_KEYS
+    .filter(k => DEAL_FIELD_DEFS[k])
+    .filter(k => deal[k] !== null && deal[k] !== undefined && deal[k] !== "")
+    .map(k => renderReportFieldRow(DEAL_FIELD_DEFS[k], "filled"))
+    .join("");
+  const requesterHtml = requesterRows ?
+    ('<div class="report-requester"><div class="report-requester-title">依頼元</div>' + requesterRows + '</div>') : "";
+
+  const headerHtml = '<div class="report-header">' +
+    '<div class="report-title">重要事項調査報告書' + escapeHtml(titleSuffix) + '</div>' +
+    '<div class="report-meta">作成日：' + escapeHtml(reportTodayJP()) + '</div>' +
+    propertyHtml +
+    requesterHtml +
+    '</div>';
+
+  const bodyHtml = items.map(item => {
+    if (item.kind === "heading") return renderReportHeading(item);
+    if (item.kind === "field") return renderReportFieldRow(item, mode);
+    if (item.kind === "rows" || item.kind === "fixed_rows") return renderReportRowsTable(item, mode);
+    if (item.kind === "checklist") return renderReportChecklist(item);
+    return "";
+  }).join("");
+
+  const footerRows = REPORT_FOOTER_KEYS.filter(k => DEAL_FIELD_DEFS[k]).map(k => renderReportFieldRow(DEAL_FIELD_DEFS[k], mode)).join("");
+  const footerHtml = footerRows ?
+    ('<div class="report-footer"><div class="report-footer-title">管理会社 記入欄</div>' + footerRows + '</div>') : "";
+
+  return '<div class="report-doc">' + headerHtml + '<div class="report-body">' + bodyHtml + '</div>' + footerHtml + '</div>';
+}
+
+/** 印刷ビューを組み立てて印刷ダイアログを開く。ダイアログが閉じたら元に戻す。 */
+function openReport(mode) {
+  const view = document.getElementById("report-view");
+  view.innerHTML = buildReportHtml(mode);
+  document.body.classList.add("printing");
+  window.onafterprint = () => {
+    document.body.classList.remove("printing");
+    view.innerHTML = "";
+    window.onafterprint = null;
+  };
+  window.print();
+}
+
+/* =========================================================================
  * トースト
  * ========================================================================= */
 function showToast(message, type) {
@@ -6512,6 +6743,8 @@ document.addEventListener("click", (e) => {
     case "modal-cancel": closeModal(); break;
     case "copy-backup-json": copyBackupJson(); break;
     case "do-import-paste": doImportPaste(); break;
+    case "report-blank": openReport("blank"); break;
+    case "report-filled": openReport("filled"); break;
   }
 });
 
