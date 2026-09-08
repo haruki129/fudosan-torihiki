@@ -1,7 +1,12 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<!-- 不動産取引システム v0.2.0 / 差分仕様書 v0.1（承認②: 2026-09-05）に基づく。横展開レイアウト（承認③: 2026-09-05） -->
+<!-- 不動産取引システム v0.3.1 / docs/02_項目定義_schema_v0.3.json（FRK標準書式「一般仲介用・区分所有建物（敷地権型）」重要事項説明書 全25p 準拠）に基づく。承認③: 2026-09-08。
+     v0.2.0からの引き継ぎ: 横展開レイアウト・一覧画面・保存/読込/削除カスケード/バックアップ・モーダル3種・aria対応・IndexedDBのみ・alert等不使用。
+     v0.3.0で追加: SCHEMA差し替え（366 field / 15テーブル / チェックリスト3件107項目）、IndexedDB v2（既存ストア維持＋新規9ストア追加）、
+     checklist描画、showif条件表示、note注記、computed複数対応（連鎖計算）、land_parcelsのmax_rows、重説タブの章ジャンプバー。
+     v0.3.1で修正: 見出し二重描画・見出しとchecklistの順序逆転を解消、showifの推移的（再帰的）非表示判定、
+     select/yesnoの範囲外の旧データ値を「（旧データ）」付きで表示、land_parcelsの上限注記を常時表示。 -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>不動産取引システム</title>
@@ -36,6 +41,7 @@
   button{ font:inherit; }
   table{ border-collapse:collapse; border-spacing:0; }
   .num{ font-variant-numeric:tabular-nums; }
+  [hidden]{ display:none !important; }
 
   /* ---- layout shells ---- */
   .container{ max-width:1120px; margin:0 auto; padding:20px; }
@@ -59,6 +65,9 @@
   .btn-ghost{ background:transparent; }
   .btn-sm{ padding:6px 12px; font-size:0.8rem; border-radius:6px; }
   .btn-add{ margin-top:8px; }
+  .btn:disabled{ opacity:0.5; cursor:not-allowed; }
+  .btn:disabled:hover{ background:var(--surface); }
+  .btn-primary:disabled:hover{ background:var(--indigo); }
 
   /* ---- list screen ---- */
   .toolbar{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px; }
@@ -101,6 +110,15 @@
   .tab-panel{ display:none; }
   .tab-panel.active{ display:block; }
 
+  /* ---- 章ジャンプバー（重要事項説明書タブのみ） ---- */
+  .jump-bar{ display:flex; flex-wrap:wrap; gap:6px; margin:0 0 18px; padding:10px; background:var(--surface); border:1px solid var(--line); border-radius:8px; }
+  .jump-btn{
+    font-family:var(--font-body); font-weight:700; font-size:0.74rem; white-space:nowrap;
+    padding:4px 10px; border-radius:6px; border:1px solid var(--line);
+    background:var(--paper); color:var(--indigo); cursor:pointer;
+  }
+  .jump-btn:hover{ background:var(--indigo-soft); }
+
   /* ---- v0.2.0案（改訂）: 見出しを左・項目を右に展開する「項目グリッド」
          4列(≥1200px) / 3列(900-1199px) / 2列(600-899px) / 1列(<600px) ---- */
   .run-grid{
@@ -127,9 +145,13 @@
   .group-label-2{ font-size:1rem; font-weight:700; color:var(--ink); }
   .group-label-3{ font-size:0.92rem; font-weight:700; color:var(--ink); }
   .group-row > .run-grid{ flex:1 1 auto; min-width:0; }
+  /* 見出しをchecklistの前に単独表示した後や、checklistで分割された2つ目以降の
+     segmentで使う「空の左見出し列」。役割・スクリーンリーダーには一切出さない。 */
+  .group-label-spacer{ flex:0 0 220px; width:220px; }
   @media (max-width:599px){
     .group-row{ flex-direction:column; gap:4px; margin:8px 0; }
     .group-label{ width:100%; flex-basis:auto; padding-top:0; }
+    .group-label-spacer{ display:none; }
   }
 
   /* ---- headings ---- */
@@ -140,6 +162,7 @@
     padding:8px 14px; border-radius:0 6px 6px 0; margin:20px 0 10px;
   }
   .tab-panel > .heading-1:first-child{ margin-top:4px; }
+  .jump-bar + .heading-1{ margin-top:4px; }
   .heading-1 .h1-badge{
     display:inline-block; background:var(--indigo); color:#fff; font-weight:700;
     font-size:0.75rem; letter-spacing:0.04em; padding:3px 9px; border-radius:4px;
@@ -167,6 +190,22 @@
   .unit{ color:var(--muted); font-size:0.85rem; white-space:nowrap; flex:0 0 auto; }
   .unit-th{ color:var(--muted); font-weight:400; }
   .note-inline{ color:var(--muted); font-size:0.78rem; }
+  .field-note{ margin:0; color:var(--muted); font-size:0.78rem; line-height:1.5; word-break:break-word; overflow-wrap:anywhere; }
+
+  /* ---- チェックリスト（全幅ブロック。グループ行の左見出しには入れない） ---- */
+  .checklist-block{ grid-column:1 / -1; margin:10px 0 4px; padding:10px 0 2px; border-top:1px solid var(--line); }
+  .checklist-label{ font-weight:700; font-size:0.92rem; color:var(--ink); margin-bottom:4px; }
+  .check-grid{
+    display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:6px 16px; margin-top:8px;
+  }
+  @media (max-width:1199px){ .check-grid{ grid-template-columns:repeat(3, minmax(0,1fr)); } }
+  @media (max-width:899px){ .check-grid{ grid-template-columns:repeat(2, minmax(0,1fr)); } }
+  @media (max-width:599px){ .check-grid{ grid-template-columns:1fr; } }
+  .check-item{
+    display:flex; align-items:flex-start; gap:6px; font-size:0.84rem; line-height:1.4;
+    min-width:0; word-break:break-word; overflow-wrap:anywhere; cursor:pointer;
+  }
+  .check-item input{ flex:0 0 auto; width:16px; height:16px; margin-top:2px; }
 
   /* ---- inputs ---- */
   .input{
@@ -236,7 +275,7 @@
 <header class="topbar">
   <div class="topbar-inner">
     <span class="brand-name">不動産取引システム</span>
-    <span class="brand-version num">v0.2.0</span>
+    <span class="brand-version num">v0.3.1</span>
   </div>
 </header>
 <main id="app"></main>
@@ -247,1512 +286,5112 @@
 "use strict";
 
 /* =========================================================================
- * SCHEMA — docs/02_項目定義_schema.json をそのまま埋め込み。
- * 項目名・順番・型・単位・選択肢はこの定数が唯一の正。
+ * SCHEMA — docs/02_項目定義_schema_v0.3.json をそのまま埋め込み。
+ * 項目名・順番・型・単位・選択肢・showif・computed・note・checklist はこの定数が唯一の正。
  * ========================================================================= */
-const SCHEMA = {
-  "db": {
-    "name": "fudosan_torihiki_db",
-    "version": 1
+const SCHEMA ={
+ "version": "0.3.0",
+ "based_on": "FRK標準書式 一般仲介用・区分所有建物（敷地権型）＜重.No.3＞ 全25p ＋ 追加資料5点",
+ "db": {
+  "name": "fudosan_torihiki_db",
+  "version": 2
+ },
+ "tabs": [
+  {
+   "key": "contract",
+   "label": "売買契約書"
   },
-  "tables": [
-    {
-      "key": "deals",
-      "label": "取引",
-      "kind": "main"
-    },
-    {
-      "key": "city_plan_facilities",
-      "label": "都市計画施設",
-      "kind": "rows",
-      "parent": "deals"
-    },
-    {
-      "key": "far_rows",
-      "label": "建ぺい率・容積率",
-      "kind": "rows",
-      "parent": "deals"
-    },
-    {
-      "key": "front_roads",
-      "label": "前面道路",
-      "kind": "rows",
-      "parent": "deals"
-    },
-    {
-      "key": "other_private_roads",
-      "label": "対象不動産に含まれない私道",
-      "kind": "rows",
-      "parent": "deals"
-    },
-    {
-      "key": "exclusive_restrictions",
-      "label": "専有部分の制限",
-      "kind": "fixed_rows",
-      "parent": "deals",
-      "fixed": [
-        "用途制限",
-        "ペットの飼育制限",
-        "フローリングの制限",
-        "楽器の使用の制限"
-      ]
-    }
-  ],
-  "tabs": [
-    {
-      "key": "contract",
-      "label": "売買契約書"
-    },
-    {
-      "key": "confirm",
-      "label": "確認内容"
-    },
-    {
-      "key": "registry",
-      "label": "登記情報"
-    },
-    {
-      "key": "special",
-      "label": "特約事項"
-    },
-    {
-      "key": "check",
-      "label": "チェック依頼"
-    },
-    {
-      "key": "juusetsu",
-      "label": "重要事項説明書"
-    }
-  ],
-  "layout": [
-    {
-      "kind": "heading",
-      "tab": "contract",
-      "level": 1,
-      "text": "売買内容"
-    },
-    {
-      "kind": "field",
-      "tab": "contract",
-      "table": "deals",
-      "key": "body_price",
-      "label": "本体価格",
-      "type": "money",
-      "unit": "円"
-    },
-    {
-      "kind": "field",
-      "tab": "contract",
-      "table": "deals",
-      "key": "tax_amount",
-      "label": "消費税額",
-      "type": "money",
-      "unit": "円"
-    },
-    {
-      "kind": "field",
-      "tab": "contract",
-      "table": "deals",
-      "key": "price",
-      "label": "売買価格",
-      "type": "money",
-      "unit": "円",
-      "computed": "body_price + tax_amount",
-      "readonly": true
-    },
-    {
-      "kind": "field",
-      "tab": "contract",
-      "table": "deals",
-      "key": "contract_date",
-      "label": "売買契約日",
-      "type": "date"
-    },
-    {
-      "kind": "field",
-      "tab": "contract",
-      "table": "deals",
-      "key": "deposit",
-      "label": "手付金",
-      "type": "money",
-      "unit": "円"
-    },
-    {
-      "kind": "field",
-      "tab": "contract",
-      "table": "deals",
-      "key": "penalty",
-      "label": "違約金",
-      "type": "money",
-      "unit": "円"
-    },
-    {
-      "kind": "field",
-      "tab": "contract",
-      "table": "deals",
-      "key": "interim_payment",
-      "label": "中間金",
-      "type": "money",
-      "unit": "円"
-    },
-    {
-      "kind": "field",
-      "tab": "contract",
-      "table": "deals",
-      "key": "settlement_date",
-      "label": "決済約定日",
-      "type": "date"
-    },
-    {
-      "kind": "field",
-      "tab": "contract",
-      "table": "deals",
-      "key": "contract_place",
-      "label": "契約場所",
-      "type": "text"
-    },
-    {
-      "kind": "field",
-      "tab": "contract",
-      "table": "deals",
-      "key": "tax_base_date",
-      "label": "公租公課起算日",
-      "type": "select",
-      "options": [
-        "1月1日",
-        "4月1日"
-      ]
-    },
-    {
-      "kind": "field",
-      "tab": "contract",
-      "table": "deals",
-      "key": "land_transfer_consent",
-      "label": "土地譲渡承諾",
-      "type": "yesno"
-    },
-    {
-      "kind": "field",
-      "tab": "confirm",
-      "table": "deals",
-      "key": "revenue_stamp",
-      "label": "収入印紙",
-      "type": "text"
-    },
-    {
-      "kind": "field",
-      "tab": "confirm",
-      "table": "deals",
-      "key": "loan_use",
-      "label": "融資利用",
-      "type": "yesno"
-    },
-    {
-      "kind": "field",
-      "tab": "confirm",
-      "table": "deals",
-      "key": "loan_amount",
-      "label": "融資利用額",
-      "type": "money",
-      "unit": "円"
-    },
-    {
-      "kind": "field",
-      "tab": "confirm",
-      "table": "deals",
-      "key": "financial_institution",
-      "label": "金融機関",
-      "type": "text"
-    },
-    {
-      "kind": "field",
-      "tab": "confirm",
-      "table": "deals",
-      "key": "loan_approval_date",
-      "label": "融資承認日",
-      "type": "date"
-    },
-    {
-      "kind": "field",
-      "tab": "confirm",
-      "table": "deals",
-      "key": "cancellation_deadline",
-      "label": "解除期日",
-      "type": "date"
-    },
-    {
-      "kind": "field",
-      "tab": "confirm",
-      "table": "deals",
-      "key": "buyer_type",
-      "label": "買主種別",
-      "type": "select",
-      "options": [
-        "客付_エンド（法人）"
-      ]
-    },
-    {
-      "kind": "field",
-      "tab": "confirm",
-      "table": "deals",
-      "key": "buyer_channel",
-      "label": "買主流入経路",
-      "type": "select",
-      "options": [
-        "レインズ",
-        "社内紹介"
-      ]
-    },
-    {
-      "kind": "field",
-      "tab": "confirm",
-      "table": "deals",
-      "key": "licensed_agent",
-      "label": "宅地建物取引士",
-      "type": "text"
-    },
-    {
-      "kind": "field",
-      "tab": "confirm",
-      "table": "deals",
-      "key": "elderly_seller_deal",
-      "label": "売主の高齢者取引",
-      "type": "yesno"
-    },
-    {
-      "kind": "field",
-      "tab": "confirm",
-      "table": "deals",
-      "key": "capacity_unconfirmed_detail",
-      "label": "行為能力の確認できない内容",
-      "type": "textarea"
-    },
-    {
-      "kind": "field",
-      "tab": "confirm",
-      "table": "deals",
-      "key": "seller_loan_balance",
-      "label": "売主ローン残債",
-      "type": "money",
-      "unit": "円"
-    },
-    {
-      "kind": "field",
-      "tab": "registry",
-      "table": "deals",
-      "key": "registry_building",
-      "label": "建物",
-      "type": "textarea"
-    },
-    {
-      "kind": "field",
-      "tab": "registry",
-      "table": "deals",
-      "key": "registry_land",
-      "label": "土地",
-      "type": "textarea"
-    },
-    {
-      "kind": "field",
-      "tab": "special",
-      "table": "deals",
-      "key": "special_terms",
-      "label": "特約事項",
-      "type": "textarea"
-    },
-    {
-      "kind": "field",
-      "tab": "check",
-      "table": "deals",
-      "key": "request_date",
-      "label": "作成希望日",
-      "type": "date"
-    },
-    {
-      "kind": "field",
-      "tab": "check",
-      "table": "deals",
-      "key": "request_time",
-      "label": "時間",
-      "type": "time"
-    },
-    {
-      "kind": "field",
-      "tab": "check",
-      "table": "deals",
-      "key": "message",
-      "label": "伝達事項",
-      "type": "textarea"
-    },
-    {
-      "kind": "field",
-      "tab": "check",
-      "table": "deals",
-      "key": "flow_step",
-      "label": "フローステップ",
-      "type": "text"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 1,
-      "text": "02 都市計画法、建築基準法等の法令に基づく制限の概要"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 2,
-      "text": "（1）都市計画に基づく制限"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 3,
-      "text": "①区域区分"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "city_planning_area",
-      "label": "都市計画区域",
-      "type": "text"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "quasi_city_planning_area_designation",
-      "label": "準都市計画区域の指定",
-      "type": "text"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 3,
-      "text": "②開発行為・旧住宅地造成事業法の許可等"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "existing_land_number",
-      "label": "既存宅地番号",
-      "type": "text",
-      "unit": "号"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "permit_number",
-      "label": "許可番号",
-      "type": "text",
-      "unit": "号"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "inspection_number",
-      "label": "検査済番号",
-      "type": "text",
-      "unit": "号"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "public_notice_number",
-      "label": "公告",
-      "type": "text",
-      "unit": "号"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 3,
-      "text": "③都市計画施設"
-    },
-    {
-      "kind": "rows",
-      "tab": "juusetsu",
-      "table": "city_plan_facilities"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "urban_development_project",
-      "label": "④市街地開発事業",
-      "type": "textarea"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "city_planning_act_note",
-      "label": "都市計画法_備考",
-      "type": "textarea"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 2,
-      "text": "（2）建築法に基づく制限"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "use_district",
-      "label": "①用途地域",
-      "type": "text"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "area_district_block",
-      "label": "②地域・地区・街区",
-      "type": "text"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "building_act_note",
-      "label": "建築法_備考",
-      "type": "textarea"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 3,
-      "text": "③④ 建築面積の敷地面積に対する割合の限度（建ぺい率） と 建築物の延べ面積の敷地面積に対する割合の限度（容積率）"
-    },
-    {
-      "kind": "rows",
-      "tab": "juusetsu",
-      "table": "far_rows"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "registered_far",
-      "label": "登録の容積率（延床面積 ÷ 地積合計）",
-      "type": "percent",
-      "unit": "%"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "far_note",
-      "label": "建ぺい率・容積率_備考",
-      "type": "textarea"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 3,
-      "text": "⑤敷地等と道路との関係"
-    },
-    {
-      "kind": "rows",
-      "tab": "juusetsu",
-      "table": "front_roads"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "setback_area_reduction",
-      "label": "道路後退線（セットバック）による建築確認対象面積の減少",
-      "type": "number",
-      "unit": "㎡"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "setback_note",
-      "label": "道路後退線_備考",
-      "type": "textarea"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 3,
-      "text": "道路位置指定"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "road_designation_date",
-      "label": "位置指定年月日",
-      "type": "date"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "road_designation_number",
-      "label": "位置指定番号",
-      "type": "text",
-      "unit": "第…号"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "ordinance_restriction",
-      "label": "条例による制限",
-      "type": "text"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 3,
-      "text": "⑥私道の変更または廃止の制限"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "private_road_restriction",
-      "label": "制限",
-      "type": "yesno"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "private_road_note",
-      "label": "備考",
-      "type": "textarea"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "wall_line_restriction",
-      "label": "⑦壁面線の制限",
-      "type": "yesno"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 3,
-      "text": "⑧敷地面積の最低限度"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "min_site_area_exists",
-      "label": "限度あり",
-      "type": "yesno"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "min_site_area",
-      "label": "限度",
-      "type": "number",
-      "unit": "㎡"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "exterior_wall_setback",
-      "label": "⑨外壁後退",
-      "type": "yesno"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 3,
-      "text": "⑩建物の高さの制限"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 3,
-      "text": "1.絶対高さ制限"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "absolute_height_limit",
-      "label": "制限高さ",
-      "type": "number",
-      "unit": "m"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "road_diagonal_restriction",
-      "label": "2.道路斜線制限",
-      "type": "yesno"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "adjacent_diagonal_restriction",
-      "label": "3.隣地斜線制限",
-      "type": "yesno"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "north_diagonal_restriction",
-      "label": "4.北側斜線制限",
-      "type": "yesno"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 3,
-      "text": "⑪日影による中高層の建築物の制限"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "shadow_hours_1",
-      "label": "時間①",
-      "type": "number",
-      "unit": "時間"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "shadow_hours_2",
-      "label": "時間②",
-      "type": "number",
-      "unit": "時間"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "shadow_hours_3",
-      "label": "時間③",
-      "type": "number",
-      "unit": "時間"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "shadow_measurement_plane",
-      "label": "測定面",
-      "type": "number",
-      "unit": "m"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "shadow_note",
-      "label": "日影制限_備考",
-      "type": "textarea"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "building_agreement",
-      "label": "⑫建築協定",
-      "type": "yesno"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "local_ordinance_restriction",
-      "label": "⑬地方公共団体の条例等による制限",
-      "type": "yesno"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 2,
-      "text": "（3)都市計画法、建築基準法以外の法令に基づく制限"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 3,
-      "text": "1.土地区画整理法に基づく制限"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 3,
-      "text": "①土地区画整理事業"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "replotting_type",
-      "label": "換地種別",
-      "type": "text"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "readjustment_project_name",
-      "label": "名称",
-      "type": "text"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 3,
-      "text": "②仮換地指定"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "provisional_designation_date",
-      "label": "指定年月日",
-      "type": "date"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "provisional_designation_number",
-      "label": "指定番号",
-      "type": "text",
-      "unit": "第…号"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "replotting_block_number",
-      "label": "③（仮）換地・保留地の街区番号等",
-      "type": "text"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "replotting_disposition_notice",
-      "label": "④換地処分の公告",
-      "type": "date"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "replotting_disposition_planned",
-      "label": "(予定)",
-      "type": "checkbox"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "provisional_replotting_map",
-      "label": "⑤仮換地図等",
-      "type": "textarea"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 3,
-      "text": "⑥清算金の徴収・交付"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "settlement_money",
-      "label": "清算金",
-      "type": "yesno"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "settlement_money_amount",
-      "label": "清算金額",
-      "type": "money",
-      "unit": "円"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "settlement_money_attribution",
-      "label": "帰属先",
-      "type": "text"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 3,
-      "text": "⑦建築等の制限"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "construction_restriction_note",
-      "label": "建築等の制限_備考",
-      "type": "textarea"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "restriction_summary",
-      "label": "制限の概要",
-      "type": "textarea"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 1,
-      "text": "03 私道に関する負担金に関する事項"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 2,
-      "text": "（1）対象不動産に含まれる私道に関する負担の内容"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "burden_area",
-      "label": "負担面積",
-      "type": "number",
-      "unit": "㎡"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "burden_area_note",
-      "label": "負担面積備考",
-      "type": "textarea"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "burden_fee_exists",
-      "label": "負担金の有無",
-      "type": "yesno"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "burden_fee_other_detail",
-      "label": "その他の場合の詳細",
-      "type": "textarea"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "burden_fee_note",
-      "label": "負担金備考",
-      "type": "textarea"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "burden_general_note",
-      "label": "負担に関する備考",
-      "type": "textarea"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 2,
-      "text": "（2）対象不動産に含まれない私道に関する事項"
-    },
-    {
-      "kind": "rows",
-      "tab": "juusetsu",
-      "table": "other_private_roads"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 1,
-      "text": "04 飲用水・電気・ガスの供給施設および排水設備の整備状況"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 2,
-      "text": "①飲用水"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "water_available_facility",
-      "label": "①飲用水／直ちに利用可能な施設",
-      "type": "text"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "water_plan",
-      "label": "①飲用水／整備予定",
-      "type": "yesno"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "water_plan_ym",
-      "label": "①飲用水／整備予定年月",
-      "type": "yearmonth",
-      "unit": "頃"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "water_plan_fee",
-      "label": "①飲用水／整備負担金",
-      "type": "money",
-      "unit": "円"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "water_pipe_status",
-      "label": "①飲用水／配管等の状況",
-      "type": "textarea"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "water_note",
-      "label": "飲用水_備考",
-      "type": "textarea"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 2,
-      "text": "②電気"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "elec_available_facility",
-      "label": "②電気／直ちに利用可能な施設",
-      "type": "text"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "elec_bulk_supply",
-      "label": "②電気／一括受電方式",
-      "type": "yesno"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "elec_retailer",
-      "label": "②電気／小売事業者",
-      "type": "select",
-      "options": []
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "elec_retailer_other",
-      "label": "②電気／選択肢にない場合",
-      "type": "text"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "elec_plan",
-      "label": "②電気／整備予定",
-      "type": "yesno"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "elec_plan_ym",
-      "label": "②電気／整備予定年月",
-      "type": "yearmonth",
-      "unit": "頃"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "elec_plan_fee",
-      "label": "②電気／整備負担金",
-      "type": "money",
-      "unit": "円"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "elec_note",
-      "label": "電気_備考",
-      "type": "textarea"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 2,
-      "text": "③ガス"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "gas_available_facility",
-      "label": "③ガス／直ちに利用可能な施設",
-      "type": "text"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "gas_plan",
-      "label": "③ガス／整備予定",
-      "type": "yesno"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "gas_plan_ym",
-      "label": "③ガス／整備予定年月",
-      "type": "yearmonth",
-      "unit": "頃"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "gas_plan_fee",
-      "label": "③ガス／整備負担金",
-      "type": "money",
-      "unit": "円"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "gas_note",
-      "label": "ガス_備考",
-      "type": "textarea"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 2,
-      "text": "④排水"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "drain_other_detail",
-      "label": "④排水／他の場合、詳細",
-      "type": "textarea"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "drain_plan",
-      "label": "④排水／整備予定",
-      "type": "yesno"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "drain_plan_ym",
-      "label": "④排水／整備予定年月",
-      "type": "yearmonth",
-      "unit": "頃"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "drain_plan_fee",
-      "label": "④排水／整備負担金",
-      "type": "money",
-      "unit": "円"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "drain_note",
-      "label": "排水_備考",
-      "type": "textarea"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 1,
-      "text": "05 宅地造成または建物建築の工事完了時における形状・構造等"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "construction_completion_form",
-      "label": "宅地造成または建物建築の工事完了時における形状・構造等",
-      "type": "textarea"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 1,
-      "text": "06 一棟の建物またはその敷地に関する権利およびこれらの管理・使用に関する事項"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 2,
-      "text": "（1）敷地に関する権利の種類および内容"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 3,
-      "text": "敷地面積"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "surveyed_area",
-      "label": "実測面積",
-      "type": "number",
-      "unit": "㎡"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "registered_area",
-      "label": "登記面積",
-      "type": "number",
-      "unit": "㎡"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "building_confirmation_area",
-      "label": "建築確認の対象面積",
-      "type": "number",
-      "unit": "㎡"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "right_type",
-      "label": "権利の種類",
-      "type": "text"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "right_target_area",
-      "label": "対象面積",
-      "type": "number",
-      "unit": "㎡"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "area_basis",
-      "label": "面積根拠",
-      "type": "text"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "right_duration",
-      "label": "存続期間",
-      "type": "text"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "owner_ground_rent",
-      "label": "区分所有者の負担額（地代）",
-      "type": "money",
-      "unit": "円"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "site_right_note",
-      "label": "敷地権利_備考",
-      "type": "textarea"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 2,
-      "text": "（2）共有部分に関する規約等の定め"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "common_area_scope",
-      "label": "共有部分の範囲",
-      "type": "textarea"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "common_area_scope_bylaw",
-      "label": "管理規約",
-      "type": "text",
-      "unit": "条"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "common_share_ratio",
-      "label": "共有部の持分の割合",
-      "type": "text"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "common_share_other_detail",
-      "label": "他の場合の詳細",
-      "type": "textarea"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "common_share_bylaw",
-      "label": "管理規約",
-      "type": "text",
-      "unit": "条"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "common_area_note",
-      "label": "共有部分_備考",
-      "type": "textarea"
-    },
-    {
-      "kind": "heading",
-      "tab": "juusetsu",
-      "level": 2,
-      "text": "（3）専有部分"
-    },
-    {
-      "kind": "fixed_rows",
-      "tab": "juusetsu",
-      "table": "exclusive_restrictions"
-    },
-    {
-      "kind": "field",
-      "tab": "juusetsu",
-      "table": "deals",
-      "key": "exclusive_note",
-      "label": "専有部分_備考",
-      "type": "textarea"
-    }
-  ],
-  "row_fields": {
-    "city_plan_facilities": [
-      {
-        "key": "name",
-        "label": "名称",
-        "type": "text"
-      },
-      {
-        "key": "width",
-        "label": "幅員",
-        "type": "number",
-        "unit": "m"
-      }
-    ],
-    "far_rows": [
-      {
-        "key": "use_district",
-        "label": "用途地域",
-        "type": "text"
-      },
-      {
-        "key": "building_coverage_ratio",
-        "label": "建ぺい率（指定）",
-        "type": "percent",
-        "unit": "%"
-      },
-      {
-        "key": "floor_area_ratio",
-        "label": "容積率（指定）",
-        "type": "percent",
-        "unit": "%"
-      }
-    ],
-    "front_roads": [
-      {
-        "key": "road_type",
-        "label": "道路の種類",
-        "type": "text"
-      },
-      {
-        "key": "road_ownership",
-        "label": "公道・私道の別",
-        "type": "select",
-        "options": [
-          "公道",
-          "私道"
-        ]
-      },
-      {
-        "key": "frontage_direction",
-        "label": "接道方向",
-        "type": "text",
-        "unit": "側"
-      },
-      {
-        "key": "width",
-        "label": "幅員",
-        "type": "number",
-        "unit": "m"
-      },
-      {
-        "key": "frontage_length",
-        "label": "接道の長さ",
-        "type": "number",
-        "unit": "m"
-      }
-    ],
-    "other_private_roads": [
-      {
-        "key": "owner_address",
-        "label": "所在者住所",
-        "type": "text"
-      },
-      {
-        "key": "owner_name",
-        "label": "所在者氏名",
-        "type": "text"
-      },
-      {
-        "key": "usage_conditions",
-        "label": "利用の条件等",
-        "type": "textarea"
-      }
-    ],
-    "exclusive_restrictions": [
-      {
-        "key": "bylaw_defined",
-        "label": "規約等の定めの有無",
-        "type": "yesno"
-      },
-      {
-        "key": "bylaw",
-        "label": "管理規約",
-        "type": "text",
-        "unit": "条"
-      },
-      {
-        "key": "house_rules",
-        "label": "使用細則",
-        "type": "text",
-        "unit": "条"
-      },
-      {
-        "key": "restriction_content",
-        "label": "制限の内容",
-        "type": "textarea"
-      }
-    ]
+  {
+   "key": "confirm",
+   "label": "確認内容"
   },
-  "list_columns": [
-    "id",
-    "contract_date",
-    "price"
-  ],
-  "system_fields": {
-    "deals": [
-      "id",
-      "created_at",
-      "updated_at"
-    ],
-    "rows": [
-      "id",
-      "deal_id",
-      "row_no"
-    ],
-    "fixed_rows": [
-      "id",
-      "deal_id",
-      "restriction_type"
-    ]
+  {
+   "key": "settlement",
+   "label": "決済"
+  },
+  {
+   "key": "assessment",
+   "label": "評価証明書"
+  },
+  {
+   "key": "brokerage",
+   "label": "仲介手数料"
+  },
+  {
+   "key": "registry",
+   "label": "登記情報"
+  },
+  {
+   "key": "special",
+   "label": "特約事項"
+  },
+  {
+   "key": "check",
+   "label": "チェック依頼"
+  },
+  {
+   "key": "juusetsu",
+   "label": "重要事項説明書"
   }
+ ],
+ "tables": [
+  {
+   "key": "deals",
+   "label": "取引",
+   "kind": "main"
+  },
+  {
+   "key": "consulting_fees",
+   "label": "コンサル料",
+   "kind": "rows",
+   "parent": "deals"
+  },
+  {
+   "key": "partnership_fees",
+   "label": "業務提携報酬",
+   "kind": "rows",
+   "parent": "deals"
+  },
+  {
+   "key": "referral_fees",
+   "label": "紹介料",
+   "kind": "rows",
+   "parent": "deals"
+  },
+  {
+   "key": "unit_floor_areas",
+   "label": "専有部分の床面積",
+   "kind": "rows",
+   "parent": "deals"
+  },
+  {
+   "key": "land_parcels",
+   "label": "土地の筆",
+   "kind": "rows",
+   "parent": "deals",
+   "max_rows": 8,
+   "note": "売買契約書・重要事項説明書に印字される土地の筆は8筆までです。"
+  },
+  {
+   "key": "city_plan_facilities",
+   "label": "都市計画施設",
+   "kind": "rows",
+   "parent": "deals"
+  },
+  {
+   "key": "far_rows",
+   "label": "建ぺい率・容積率",
+   "kind": "rows",
+   "parent": "deals"
+  },
+  {
+   "key": "front_roads",
+   "label": "前面道路",
+   "kind": "rows",
+   "parent": "deals"
+  },
+  {
+   "key": "other_private_roads",
+   "label": "対象不動産に含まれない私道",
+   "kind": "rows",
+   "parent": "deals"
+  },
+  {
+   "key": "exclusive_restrictions",
+   "label": "専有部分の制限",
+   "kind": "fixed_rows",
+   "parent": "deals",
+   "fixed": [
+    "用途制限",
+    "ペットの飼育制限",
+    "フローリングの制限",
+    "楽器の使用制限"
+   ]
+  },
+  {
+   "key": "exclusive_use_rights",
+   "label": "専用使用権",
+   "kind": "fixed_rows",
+   "parent": "deals",
+   "fixed": [
+    "バルコニー",
+    "玄関扉、窓枠、窓ガラス",
+    "専用庭",
+    "ルーフバルコニー",
+    "トランクルーム",
+    "駐車場",
+    "駐輪場",
+    "バイク置場"
+   ]
+  },
+  {
+   "key": "attached_use_rights",
+   "label": "対象不動産に付随する専用使用権",
+   "kind": "rows",
+   "parent": "deals"
+  },
+  {
+   "key": "money_transfers",
+   "label": "授受される金銭",
+   "kind": "rows",
+   "parent": "deals"
+  },
+  {
+   "key": "loan_arrangements",
+   "label": "金銭の貸借のあっせん",
+   "kind": "rows",
+   "parent": "deals"
+  }
+ ],
+ "layout": [
+  {
+   "kind": "heading",
+   "tab": "contract",
+   "level": 1,
+   "text": "売買内容"
+  },
+  {
+   "kind": "field",
+   "tab": "contract",
+   "table": "deals",
+   "key": "body_price",
+   "label": "本体価格",
+   "type": "money",
+   "unit": "円",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "contract",
+   "table": "deals",
+   "key": "tax_amount",
+   "label": "消費税額",
+   "type": "money",
+   "unit": "円",
+   "note": "評価証明書タブの「消費税」を参照して入力してください",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "contract",
+   "table": "deals",
+   "key": "price",
+   "label": "売買価格",
+   "type": "money",
+   "unit": "円",
+   "computed": "body_price + tax_amount",
+   "readonly": true,
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "contract",
+   "table": "deals",
+   "key": "contract_date",
+   "label": "売買契約日",
+   "type": "date",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "contract",
+   "table": "deals",
+   "key": "deposit",
+   "label": "手付金",
+   "type": "money",
+   "unit": "円",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "contract",
+   "table": "deals",
+   "key": "penalty_type",
+   "label": "違約金の定め方",
+   "type": "select",
+   "options": [
+    "直接入力",
+    "手付金同額",
+    "売買代金の10%相当額",
+    "売買代金の20%相当額"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "contract",
+   "table": "deals",
+   "key": "penalty",
+   "label": "違約金",
+   "type": "money",
+   "unit": "円",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "contract",
+   "table": "deals",
+   "key": "interim_payment",
+   "label": "中間金",
+   "type": "money",
+   "unit": "円",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "contract",
+   "table": "deals",
+   "key": "settlement_date",
+   "label": "決済約定日",
+   "type": "date",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "contract",
+   "table": "deals",
+   "key": "contract_place",
+   "label": "契約場所",
+   "type": "text",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "contract",
+   "table": "deals",
+   "key": "tax_base_date",
+   "label": "公租公課起算日",
+   "type": "select",
+   "options": [
+    "1月1日",
+    "4月1日"
+   ],
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "contract",
+   "table": "deals",
+   "key": "land_transfer_consent",
+   "label": "土地譲渡承諾",
+   "type": "yesno",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "contract",
+   "table": "deals",
+   "key": "land_lease_transfer_consent_deadline",
+   "label": "土地賃貸借譲渡承諾解除日",
+   "type": "date",
+   "showif": {
+    "key": "land_transfer_consent",
+    "in": [
+     "あり"
+    ]
+   },
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "contract",
+   "table": "deals",
+   "key": "inspection_confirmed_matters",
+   "label": "インスペクション",
+   "type": "textarea",
+   "note": "建物の構造耐力上主要な部分等の状況について当事者双方が確認した事項",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "confirm",
+   "table": "deals",
+   "key": "revenue_stamp",
+   "label": "収入印紙",
+   "type": "text",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "confirm",
+   "table": "deals",
+   "key": "loan_use",
+   "label": "融資利用",
+   "type": "yesno",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "confirm",
+   "table": "deals",
+   "key": "loan_amount",
+   "label": "融資利用額",
+   "type": "money",
+   "unit": "円",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "confirm",
+   "table": "deals",
+   "key": "financial_institution",
+   "label": "金融機関",
+   "type": "text",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "confirm",
+   "table": "deals",
+   "key": "loan_approval_date",
+   "label": "融資承認日",
+   "type": "date",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "confirm",
+   "table": "deals",
+   "key": "cancellation_deadline",
+   "label": "解除期日",
+   "type": "date",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "confirm",
+   "table": "deals",
+   "key": "buyer_type",
+   "label": "買主種別",
+   "type": "select",
+   "options": [
+    "客付_エンド（法人）"
+   ],
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "confirm",
+   "table": "deals",
+   "key": "buyer_channel",
+   "label": "買主流入経路",
+   "type": "select",
+   "options": [
+    "レインズ",
+    "社内紹介"
+   ],
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "confirm",
+   "table": "deals",
+   "key": "licensed_agent",
+   "label": "宅地建物取引士",
+   "type": "text",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "confirm",
+   "table": "deals",
+   "key": "elderly_seller_deal",
+   "label": "売主の高齢者取引",
+   "type": "yesno",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "confirm",
+   "table": "deals",
+   "key": "capacity_unconfirmed_detail",
+   "label": "行為能力の確認できない内容",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "confirm",
+   "table": "deals",
+   "key": "seller_loan_balance",
+   "label": "売主ローン残債",
+   "type": "money",
+   "unit": "円",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "settlement",
+   "table": "deals",
+   "key": "delivery_date_basis",
+   "label": "引渡日の定め方",
+   "type": "select",
+   "options": [
+    "売買代金受領日",
+    "居住延長"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "settlement",
+   "table": "deals",
+   "key": "delivery_date",
+   "label": "引渡日",
+   "type": "date",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "assessment",
+   "level": 1,
+   "text": "固定資産税評価額"
+  },
+  {
+   "kind": "field",
+   "tab": "assessment",
+   "table": "deals",
+   "key": "assess_building_unit",
+   "label": "建物固定資産税評価額（区分）",
+   "type": "money",
+   "unit": "円",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "assessment",
+   "table": "deals",
+   "key": "assess_land_whole",
+   "label": "土地固定資産税評価額（一棟）",
+   "type": "money",
+   "unit": "円",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "assessment",
+   "table": "deals",
+   "key": "assess_land_share_num",
+   "label": "土地持分（分子）",
+   "type": "number",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "assessment",
+   "table": "deals",
+   "key": "assess_land_share_den",
+   "label": "土地持分（分母）",
+   "type": "number",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "assessment",
+   "table": "deals",
+   "key": "assess_land_unit",
+   "label": "土地固定資産税評価額（区分）",
+   "type": "money",
+   "unit": "円",
+   "computed": "assess_land_whole * assess_land_share_num / assess_land_share_den",
+   "readonly": true,
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "assessment",
+   "table": "deals",
+   "key": "assess_diff_reason",
+   "label": "評価額が異なる理由",
+   "type": "textarea",
+   "note": "200字まで",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "assessment",
+   "level": 1,
+   "text": "売買価格"
+  },
+  {
+   "kind": "field",
+   "tab": "assessment",
+   "table": "deals",
+   "key": "sale_price_total",
+   "label": "売買価格",
+   "type": "money",
+   "unit": "円",
+   "computed": "sale_price_land + sale_price_building + sale_tax",
+   "readonly": true,
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "assessment",
+   "table": "deals",
+   "key": "sale_price_land",
+   "label": "土地価格",
+   "type": "money",
+   "unit": "円",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "assessment",
+   "table": "deals",
+   "key": "sale_price_building",
+   "label": "建物価格",
+   "type": "money",
+   "unit": "円",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "assessment",
+   "table": "deals",
+   "key": "sale_tax",
+   "label": "消費税",
+   "type": "money",
+   "unit": "円",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "assessment",
+   "level": 1,
+   "text": "不動産取得税"
+  },
+  {
+   "kind": "field",
+   "tab": "assessment",
+   "table": "deals",
+   "key": "acq_tax_land_relief",
+   "label": "土地の軽減措置",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "assessment",
+   "table": "deals",
+   "key": "acq_tax_land_rate",
+   "label": "土地の取得税率",
+   "type": "percent",
+   "unit": "%",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "assessment",
+   "table": "deals",
+   "key": "acq_tax_land",
+   "label": "土地取得税",
+   "type": "money",
+   "unit": "円",
+   "computed": "assess_land_unit * acq_tax_land_rate / 100",
+   "readonly": true,
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "assessment",
+   "table": "deals",
+   "key": "acq_tax_building_relief",
+   "label": "建物の軽減措置",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "assessment",
+   "table": "deals",
+   "key": "acq_tax_building_rate",
+   "label": "建物の取得税率",
+   "type": "percent",
+   "unit": "%",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "assessment",
+   "table": "deals",
+   "key": "acq_tax_building",
+   "label": "建物取得税",
+   "type": "money",
+   "unit": "円",
+   "computed": "assess_building_unit * acq_tax_building_rate / 100",
+   "readonly": true,
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "assessment",
+   "table": "deals",
+   "key": "acq_tax_total",
+   "label": "不動産取得税（合計）",
+   "type": "money",
+   "unit": "円",
+   "computed": "acq_tax_land + acq_tax_building",
+   "readonly": true,
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "assessment",
+   "level": 1,
+   "text": "固定資産税・都市計画税"
+  },
+  {
+   "kind": "field",
+   "tab": "assessment",
+   "table": "deals",
+   "key": "fixed_asset_tax_note",
+   "label": "固定資産税・都市計画税",
+   "type": "textarea",
+   "note": "公課証明書等を参照し、正しい税額を算出してください",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "assessment",
+   "level": 1,
+   "text": "登録免許税（所有権移転）"
+  },
+  {
+   "kind": "field",
+   "tab": "assessment",
+   "table": "deals",
+   "key": "reg_tax_land_rate",
+   "label": "土地 税率",
+   "type": "percent",
+   "unit": "%",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "assessment",
+   "table": "deals",
+   "key": "reg_tax_land",
+   "label": "土地 登録免許税",
+   "type": "money",
+   "unit": "円",
+   "computed": "assess_land_unit * reg_tax_land_rate / 100",
+   "readonly": true,
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "assessment",
+   "table": "deals",
+   "key": "reg_tax_building_rate",
+   "label": "建物 税率",
+   "type": "percent",
+   "unit": "%",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "assessment",
+   "table": "deals",
+   "key": "reg_tax_building",
+   "label": "建物 登録免許税",
+   "type": "money",
+   "unit": "円",
+   "computed": "assess_building_unit * reg_tax_building_rate / 100",
+   "readonly": true,
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "assessment",
+   "table": "deals",
+   "key": "reg_tax_total",
+   "label": "合計（土地＋建物）",
+   "type": "money",
+   "unit": "円",
+   "computed": "reg_tax_land + reg_tax_building",
+   "readonly": true,
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "assessment",
+   "level": 1,
+   "text": "登録免許税（抵当権設定）"
+  },
+  {
+   "kind": "field",
+   "tab": "assessment",
+   "table": "deals",
+   "key": "mortgage_reg_tax_rate",
+   "label": "税率",
+   "type": "percent",
+   "unit": "%",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "assessment",
+   "table": "deals",
+   "key": "mortgage_loan_amount",
+   "label": "借入額",
+   "type": "money",
+   "unit": "円",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "assessment",
+   "table": "deals",
+   "key": "mortgage_reg_tax",
+   "label": "登録免許税",
+   "type": "money",
+   "unit": "円",
+   "computed": "mortgage_loan_amount * mortgage_reg_tax_rate / 100",
+   "readonly": true,
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "brokerage",
+   "level": 1,
+   "text": "仲介手数料"
+  },
+  {
+   "kind": "field",
+   "tab": "brokerage",
+   "table": "deals",
+   "key": "brokerage_fee_total",
+   "label": "仲介手数料（税込）",
+   "type": "money",
+   "unit": "円",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "brokerage",
+   "table": "deals",
+   "key": "brokerage_fee_contract",
+   "label": "契約時（税込）",
+   "type": "money",
+   "unit": "円",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "brokerage",
+   "table": "deals",
+   "key": "brokerage_fee_settlement",
+   "label": "決済時（税込）",
+   "type": "money",
+   "unit": "円",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "brokerage",
+   "table": "deals",
+   "key": "brokerage_counterparty",
+   "label": "相手先",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "brokerage",
+   "level": 1,
+   "text": "コンサル料"
+  },
+  {
+   "kind": "rows",
+   "tab": "brokerage",
+   "table": "consulting_fees"
+  },
+  {
+   "kind": "heading",
+   "tab": "brokerage",
+   "level": 1,
+   "text": "業務提携報酬"
+  },
+  {
+   "kind": "rows",
+   "tab": "brokerage",
+   "table": "partnership_fees"
+  },
+  {
+   "kind": "heading",
+   "tab": "brokerage",
+   "level": 1,
+   "text": "紹介料"
+  },
+  {
+   "kind": "rows",
+   "tab": "brokerage",
+   "table": "referral_fees"
+  },
+  {
+   "kind": "heading",
+   "tab": "registry",
+   "level": 1,
+   "text": "一棟の建物の表示"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "bldg_name",
+   "label": "建物名",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "bldg_room_number",
+   "label": "部屋番号",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "bldg_floor_of_room",
+   "label": "階",
+   "type": "number",
+   "unit": "階",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "bldg_residential_address",
+   "label": "住居表示",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "bldg_location",
+   "label": "所在",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "bldg_structure",
+   "label": "構造",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "bldg_roof",
+   "label": "屋根",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "bldg_basement_floors",
+   "label": "地下",
+   "type": "number",
+   "unit": "階付き",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "bldg_ground_floors",
+   "label": "地上",
+   "type": "number",
+   "unit": "階建",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "bldg_total_floor_area",
+   "label": "延床面積",
+   "type": "number",
+   "unit": "㎡",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "registry",
+   "level": 1,
+   "text": "専有部分の建物の表示"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "unit_house_number",
+   "label": "家屋番号",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "unit_building_name",
+   "label": "建物の名称",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "unit_kind",
+   "label": "①種類",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "unit_structure",
+   "label": "②構造",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "unit_floors",
+   "label": "階建",
+   "type": "number",
+   "unit": "階建",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "registry",
+   "level": 3,
+   "text": "③床面積"
+  },
+  {
+   "kind": "rows",
+   "tab": "registry",
+   "table": "unit_floor_areas"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "unit_registered_area",
+   "label": "登記簿専有面積",
+   "type": "number",
+   "unit": "㎡",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "unit_wall_center_area",
+   "label": "壁芯面積",
+   "type": "number",
+   "unit": "㎡",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "unit_registration_cause",
+   "label": "表示登記の原因およびその日付",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "unit_built_period",
+   "label": "建築時期",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "annex_building",
+   "label": "付属建物",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "property_special_note",
+   "label": "物件特記事項",
+   "type": "textarea",
+   "note": "600字まで",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "registry",
+   "level": 1,
+   "text": "土地の権利"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "land_right_type",
+   "label": "土地の権利",
+   "type": "select",
+   "options": [
+    "所有権",
+    "地上権",
+    "賃借権"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "land_right_registered",
+   "label": "登記の有無",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "land_share_wording",
+   "label": "割合の文言",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "land_leasehold_etc",
+   "label": "賃借権等",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "registry",
+   "level": 1,
+   "text": "土地の筆"
+  },
+  {
+   "kind": "rows",
+   "tab": "registry",
+   "table": "land_parcels"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "land_parcel_count",
+   "label": "合計",
+   "type": "number",
+   "unit": "筆",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "land_parcel_area_total",
+   "label": "合計地積",
+   "type": "number",
+   "unit": "㎡",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "regulation_site_defined",
+   "label": "管理規約に規約敷地の定め",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "registry",
+   "level": 1,
+   "text": "旧 自由記述欄（v0.2.0 からのデータ保持用）"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "registry_building",
+   "label": "建物",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "registry",
+   "table": "deals",
+   "key": "registry_land",
+   "label": "土地",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "special",
+   "table": "deals",
+   "key": "special_terms",
+   "label": "特約事項",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "check",
+   "table": "deals",
+   "key": "request_date",
+   "label": "作成希望日",
+   "type": "date",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "check",
+   "table": "deals",
+   "key": "request_time",
+   "label": "時間",
+   "type": "time",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "check",
+   "table": "deals",
+   "key": "message",
+   "label": "伝達事項",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "check",
+   "table": "deals",
+   "key": "flow_step",
+   "label": "フローステップ",
+   "type": "text",
+   "v": "keep"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 1,
+   "text": "B　売主の表示と占有に関する事項"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 2,
+   "text": "1. 売主"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "seller_owner_relation",
+   "label": "登記簿記載の所有者との関係",
+   "type": "select",
+   "options": [
+    "登記簿記載の所有者と同じ",
+    "登記簿記載の所有者と異なる"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "seller_address",
+   "label": "住所",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "seller_name",
+   "label": "氏名",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "seller_note",
+   "label": "備考",
+   "type": "textarea",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 2,
+   "text": "2. 売買契約締結時の占有に関する事項"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "third_party_occupancy",
+   "label": "第三者による占有",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "occupant_address",
+   "label": "住所",
+   "type": "text",
+   "showif": {
+    "key": "third_party_occupancy",
+    "in": [
+     "あり"
+    ]
+   },
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "occupant_name",
+   "label": "氏名",
+   "type": "text",
+   "showif": {
+    "key": "third_party_occupancy",
+    "in": [
+     "あり"
+    ]
+   },
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "occupancy_right",
+   "label": "占有に関する権利",
+   "type": "textarea",
+   "showif": {
+    "key": "third_party_occupancy",
+    "in": [
+     "あり"
+    ]
+   },
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 1,
+   "text": "01　登記記録に記録された事項"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 2,
+   "text": "（1）区分所有建物"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "reg_bldg_asof",
+   "label": "現在日付",
+   "type": "date",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "reg_bldg_owner_address",
+   "label": "所有者 住所",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "reg_bldg_owner_name",
+   "label": "所有者 氏名",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "reg_bldg_kou_exists",
+   "label": "所有権にかかる権利に関する事項（甲区）",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "reg_bldg_kou_detail",
+   "label": "甲区 内容",
+   "type": "textarea",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "reg_bldg_otsu_exists",
+   "label": "所有権以外の権利に関する事項（乙区）",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "reg_bldg_otsu_detail",
+   "label": "乙区 内容",
+   "type": "textarea",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 2,
+   "text": "（2）土地（借地権の場合、借地権の対象となるべき土地）"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "reg_land_asof",
+   "label": "現在日付",
+   "type": "date",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "reg_land_owner_address",
+   "label": "所有者 住所",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "reg_land_owner_name",
+   "label": "所有者 氏名",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "reg_land_kou_exists",
+   "label": "所有権にかかる権利に関する事項（甲区）",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "reg_land_kou_detail",
+   "label": "甲区 内容",
+   "type": "textarea",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "reg_land_otsu_exists",
+   "label": "所有権以外の権利に関する事項（乙区）",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "reg_land_otsu_detail",
+   "label": "乙区 内容",
+   "type": "textarea",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 1,
+   "text": "02　都市計画法、建築基準法等の法令に基づく制限の概要"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 2,
+   "text": "（1）都市計画法に基づく制限"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 3,
+   "text": "①区域区分"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "city_planning_area",
+   "label": "都市計画区域",
+   "type": "select",
+   "options": [
+    "都市計画区域",
+    "都市計画区域外"
+   ],
+   "v": "retype",
+   "was": "text"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "city_planning_area_division",
+   "label": "区域区分",
+   "type": "select",
+   "options": [
+    "市街化区域",
+    "市街化調整区域",
+    "区域区分のされていない区域"
+   ],
+   "showif": {
+    "key": "city_planning_area",
+    "in": [
+     "都市計画区域"
+    ]
+   },
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "quasi_city_planning_area_designation",
+   "label": "準都市計画区域の指定",
+   "type": "yesno",
+   "showif": {
+    "key": "city_planning_area",
+    "in": [
+     "都市計画区域外"
+    ]
+   },
+   "v": "retype",
+   "was": "text"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 3,
+   "text": "②市街化調整区域の場合　開発行為・旧住宅地造成事業の許可等"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "existing_land_date",
+   "label": "既存宅地 年月日",
+   "type": "date",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "existing_land_number",
+   "label": "既存宅地番号",
+   "type": "text",
+   "unit": "号",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "permit_date",
+   "label": "許可 年月日",
+   "type": "date",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "permit_number",
+   "label": "許可番号",
+   "type": "text",
+   "unit": "号",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "inspection_date",
+   "label": "検査済 年月日",
+   "type": "date",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "inspection_number",
+   "label": "検査済番号",
+   "type": "text",
+   "unit": "号",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "public_notice_date",
+   "label": "公告 年月日",
+   "type": "date",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "public_notice_number",
+   "label": "公告",
+   "type": "text",
+   "unit": "号",
+   "v": "keep"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 3,
+   "text": "③都市計画施設"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "city_plan_facility_exists",
+   "label": "都市計画施設",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "rows",
+   "tab": "juusetsu",
+   "table": "city_plan_facilities"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 3,
+   "text": "④市街地開発事業"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "urban_development_project_exists",
+   "label": "市街地開発事業",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "urban_development_project",
+   "label": "④市街地開発事業",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "city_planning_act_note",
+   "label": "都市計画法_備考",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 2,
+   "text": "（2）建築基準法に基づく制限"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "use_district",
+   "label": "①用途地域",
+   "type": "select",
+   "options": [
+    "第1種低層住居専用地域",
+    "第2種低層住居専用地域",
+    "第1種中高層住居専用地域",
+    "第2種中高層住居専用地域",
+    "第1種住居地域",
+    "第2種住居地域",
+    "準住居地域",
+    "田園住居地域",
+    "近隣商業地域",
+    "商業地域",
+    "準工業地域",
+    "工業地域",
+    "工業専用地域",
+    "用途地域の指定なし"
+   ],
+   "v": "retype",
+   "was": "text"
+  },
+  {
+   "kind": "checklist",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "area_district_checks",
+   "label": "②地域・地区・街区",
+   "items": [
+    "防火地域",
+    "準防火地域",
+    "高度地区",
+    "高度利用地区",
+    "特定街区",
+    "景観地区",
+    "風致地区",
+    "災害危険区域",
+    "駐車場整備地区",
+    "特例容積率適用地区",
+    "特定用途制限地域",
+    "高層住居誘導地区",
+    "都市再生特別地区",
+    "特定防災街区整備地区",
+    "特定用途誘導地区"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "area_district_height_detail",
+   "label": "高度地区（内容）",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "area_district_block",
+   "label": "②地域・地区・街区（その他1）",
+   "type": "text",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "area_district_other2",
+   "label": "②地域・地区・街区（その他2）",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "building_act_note",
+   "label": "建築法_備考",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 3,
+   "text": "③④　建ぺい率・容積率"
+  },
+  {
+   "kind": "rows",
+   "tab": "juusetsu",
+   "table": "far_rows"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "far_district_plan_limit",
+   "label": "地区計画の制限による容積率",
+   "type": "percent",
+   "unit": "%",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "far_road_width",
+   "label": "前面道路による制限　道路幅員",
+   "type": "number",
+   "unit": "m",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "far_road_coefficient",
+   "label": "前面道路による制限　係数（分子）",
+   "type": "number",
+   "unit": "/10",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "registered_far",
+   "label": "登録の容積率（延床面積 ÷ 地積合計）",
+   "type": "percent",
+   "unit": "%",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "far_note",
+   "label": "建ぺい率・容積率_備考",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 3,
+   "text": "⑤敷地等と道路との関係"
+  },
+  {
+   "kind": "rows",
+   "tab": "juusetsu",
+   "table": "front_roads"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "setback_area_reduction",
+   "label": "道路境界線の後退（セットバック）",
+   "type": "yesno",
+   "v": "retype",
+   "was": "number"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "road_position_restoration",
+   "label": "位置指定道路の復元",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "setback_note",
+   "label": "道路後退線_備考",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "road_position_designation_exists",
+   "label": "道路位置指定",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "road_designation_date",
+   "label": "位置指定年月日",
+   "type": "date",
+   "showif": {
+    "key": "road_position_designation_exists",
+    "in": [
+     "あり"
+    ]
+   },
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "road_designation_number",
+   "label": "位置指定番号",
+   "type": "text",
+   "unit": "第…号",
+   "showif": {
+    "key": "road_position_designation_exists",
+    "in": [
+     "あり"
+    ]
+   },
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "ordinance_restriction",
+   "label": "条例による制限",
+   "type": "yesno",
+   "v": "retype",
+   "was": "text"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 3,
+   "text": "⑥〜⑨"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "private_road_restriction",
+   "label": "⑥私道の変更または廃止の制限",
+   "type": "yesno",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "private_road_note",
+   "label": "備考",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "wall_line_restriction",
+   "label": "⑦壁面線の制限",
+   "type": "yesno",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "min_site_area_exists",
+   "label": "⑧敷地面積の最低限度",
+   "type": "yesno",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "min_site_area",
+   "label": "限度",
+   "type": "number",
+   "unit": "㎡",
+   "showif": {
+    "key": "min_site_area_exists",
+    "in": [
+     "あり"
+    ]
+   },
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "exterior_wall_setback",
+   "label": "⑨外壁後退",
+   "type": "yesno",
+   "v": "keep"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 3,
+   "text": "⑩建物の高さの制限"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "absolute_height_limit_exists",
+   "label": "1.絶対高さ制限",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "absolute_height_limit",
+   "label": "制限高さ",
+   "type": "select",
+   "options": [
+    "10m",
+    "12m"
+   ],
+   "showif": {
+    "key": "absolute_height_limit_exists",
+    "in": [
+     "あり"
+    ]
+   },
+   "v": "retype",
+   "was": "number"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "road_diagonal_restriction",
+   "label": "2.道路斜線制限",
+   "type": "yesno",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "adjacent_diagonal_restriction",
+   "label": "3.隣地斜線制限",
+   "type": "yesno",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "north_diagonal_restriction",
+   "label": "4.北側斜線制限",
+   "type": "yesno",
+   "v": "keep"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 3,
+   "text": "⑪日影による中高層の建築物の制限"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "shadow_regulation_exists",
+   "label": "日影による中高層の建築物の制限",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "shadow_regulation_kind",
+   "label": "種",
+   "type": "text",
+   "showif": {
+    "key": "shadow_regulation_exists",
+    "in": [
+     "あり"
+    ]
+   },
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "shadow_hours_1",
+   "label": "時間①",
+   "type": "number",
+   "unit": "時間",
+   "showif": {
+    "key": "shadow_regulation_exists",
+    "in": [
+     "あり"
+    ]
+   },
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "shadow_hours_2",
+   "label": "時間②",
+   "type": "number",
+   "unit": "時間",
+   "showif": {
+    "key": "shadow_regulation_exists",
+    "in": [
+     "あり"
+    ]
+   },
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "shadow_hours_3",
+   "label": "時間③",
+   "type": "number",
+   "unit": "時間",
+   "showif": {
+    "key": "shadow_regulation_exists",
+    "in": [
+     "あり"
+    ]
+   },
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "shadow_measurement_plane",
+   "label": "測定面",
+   "type": "number",
+   "unit": "m",
+   "showif": {
+    "key": "shadow_regulation_exists",
+    "in": [
+     "あり"
+    ]
+   },
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "shadow_note",
+   "label": "日影制限_備考",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 3,
+   "text": "⑫⑬"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "building_agreement",
+   "label": "⑫建築協定",
+   "type": "yesno",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "local_ordinance_restriction",
+   "label": "⑬地方公共団体の条例等による制限",
+   "type": "yesno",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "local_ordinance_detail",
+   "label": "⑬内容",
+   "type": "textarea",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 2,
+   "text": "（3）都市計画法、建築基準法以外の法令に基づく制限"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 3,
+   "text": "1. 土地区画整理法に基づく制限"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "land_readjustment_exists",
+   "label": "土地区画整理法に基づく制限",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "readjustment_project_status",
+   "label": "①土地区画整理事業",
+   "type": "select",
+   "options": [
+    "計画中",
+    "施行中"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "replotting_type",
+   "label": "換地種別",
+   "type": "select",
+   "options": [
+    "仮換地",
+    "換地",
+    "保留地"
+   ],
+   "v": "retype",
+   "was": "text"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "readjustment_project_name",
+   "label": "名称",
+   "type": "text",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "provisional_designation_status",
+   "label": "②仮換地指定",
+   "type": "select",
+   "options": [
+    "未",
+    "済"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "provisional_designation_date",
+   "label": "指定年月日",
+   "type": "date",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "provisional_designation_number",
+   "label": "指定番号",
+   "type": "text",
+   "unit": "第…号",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "replotting_block_number",
+   "label": "③（仮）換地・保留地の街区番号等",
+   "type": "text",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "replotting_disposition_notice",
+   "label": "④換地処分の公告",
+   "type": "date",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "replotting_disposition_planned",
+   "label": "(予定)",
+   "type": "checkbox",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "provisional_replotting_map",
+   "label": "⑤仮換地図等",
+   "type": "yesno",
+   "v": "retype",
+   "was": "textarea"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "settlement_money",
+   "label": "⑥清算金の徴収・交付",
+   "type": "select",
+   "options": [
+    "有",
+    "無",
+    "未定"
+   ],
+   "v": "retype",
+   "was": "yesno"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "settlement_money_direction",
+   "label": "徴収・交付",
+   "type": "select",
+   "options": [
+    "徴収",
+    "交付"
+   ],
+   "showif": {
+    "key": "settlement_money",
+    "in": [
+     "有"
+    ]
+   },
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "settlement_money_fixed",
+   "label": "金額",
+   "type": "select",
+   "options": [
+    "未定",
+    "確定"
+   ],
+   "showif": {
+    "key": "settlement_money",
+    "in": [
+     "有"
+    ]
+   },
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "settlement_money_amount",
+   "label": "清算金額",
+   "type": "money",
+   "unit": "円",
+   "showif": {
+    "key": "settlement_money",
+    "in": [
+     "有"
+    ]
+   },
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "settlement_money_attribution",
+   "label": "帰属先",
+   "type": "select",
+   "options": [
+    "売主",
+    "買主"
+   ],
+   "showif": {
+    "key": "settlement_money",
+    "in": [
+     "有"
+    ]
+   },
+   "v": "retype",
+   "was": "text"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "construction_restriction_exists",
+   "label": "⑦建築等の制限",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "construction_restriction_note",
+   "label": "建築等の制限_備考",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 3,
+   "text": "2. その他の法令に基づく制限"
+  },
+  {
+   "kind": "checklist",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "law_restrictions",
+   "label": "該当する法令にチェック",
+   "items": [
+    "2 古都保存法",
+    "3 都市緑地法",
+    "4 生産緑地法",
+    "5 特定空港周辺特別措置法",
+    "6 景観法",
+    "7 大都市地域における住宅及び住宅地の供給の促進に関する特別措置法",
+    "8 地方拠点都市地域の整備及び産業業務施設の再配置の促進に関する法律",
+    "9 被災市街地復興特別措置法",
+    "10 新住宅市街地開発法",
+    "11 新都市基盤整備法",
+    "12 旧市街地改造法",
+    "13 首都圏の近郊整備地帯及び都市開発区域の整備に関する法律",
+    "14 近畿圏の近郊整備区域及び都市開発区域の整備及び開発に関する法律",
+    "15 流通業務市街地整備法",
+    "16 都市再開発法",
+    "17 沿道整備法",
+    "18 集落地域整備法",
+    "19 密集市街地における防災街区の整備の促進に関する法律",
+    "20 地域における歴史的風致の維持及び向上に関する法律",
+    "21 港湾法",
+    "22 住宅地区改良法",
+    "23 公有地拡大推進法",
+    "24 農地法",
+    "25 宅地造成及び特定盛土等規制法（旧宅地造成等規制法）",
+    "26 マンションの再生等の円滑化に関する法律",
+    "27 長期優良住宅の普及の促進に関する法律",
+    "28 都市公園法",
+    "29 自然公園法",
+    "30 首都圏近郊緑地保全法",
+    "31 近畿圏の保全区域の整備に関する法律",
+    "32 都市の低炭素化の促進に関する法律",
+    "33 生物多様性増進活動促進法",
+    "34 水防法",
+    "35 下水道法",
+    "36 河川法",
+    "37 特定都市河川浸水被害対策法",
+    "38 海岸法",
+    "39 津波防災地域づくりに関する法律",
+    "40 砂防法",
+    "41 地すべり等防止法",
+    "42 急傾斜地の崩壊による災害の防止に関する法律",
+    "43 土砂災害防止対策推進法",
+    "44 森林法",
+    "45 森林経営管理法",
+    "46 道路法",
+    "47 踏切道改良促進法",
+    "48 全国新幹線鉄道整備法",
+    "49 土地収用法",
+    "50 文化財保護法",
+    "51 航空法（自衛隊法において準用する場合を含む）",
+    "52 国土利用計画法",
+    "53 核原料物質、核燃料物質及び原子炉の規制に関する法律",
+    "54 廃棄物の処理及び清掃に関する法律",
+    "55 土壌汚染対策法",
+    "56 都市再生特別措置法",
+    "57 地域再生法",
+    "58 高齢者、障害者等の移動等の円滑化の促進に関する法律",
+    "59 災害対策基本法",
+    "60 東日本大震災復興特別区域法",
+    "61 大規模災害からの復興に関する法律",
+    "62 重要土地等調査法"
+   ],
+   "v": "new",
+   "note": "重説 I-2(3) の一覧（No.2〜62）。チェックした法令の内容は下の「制限の概要」に記載します。"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "restriction_summary",
+   "label": "制限の概要",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 1,
+   "text": "03　私道に関する負担等に関する事項"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 2,
+   "text": "（1）対象不動産に含まれる私道に関する負担の内容"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "burden_area_exists",
+   "label": "負担面積",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "burden_area",
+   "label": "負担面積",
+   "type": "number",
+   "unit": "㎡",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "burden_area_note",
+   "label": "負担面積備考",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "burden_fee_exists",
+   "label": "負担金の有無",
+   "type": "yesno",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "burden_fee_other_detail",
+   "label": "その他の場合の詳細",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "burden_fee_note",
+   "label": "負担金備考",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "burden_general_note",
+   "label": "負担に関する備考",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 2,
+   "text": "（2）対象不動産に含まれない私道に関する事項"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "other_private_road_exists",
+   "label": "対象不動産に含まれない私道",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "rows",
+   "tab": "juusetsu",
+   "table": "other_private_roads"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 1,
+   "text": "04　飲用水・電気・ガスの供給施設および排水施設の整備状況"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 3,
+   "text": "①飲用水"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "water_available_facility",
+   "label": "①飲用水／直ちに利用可能な施設",
+   "type": "select",
+   "options": [
+    "公営水道",
+    "私営水道",
+    "井戸"
+   ],
+   "v": "retype",
+   "was": "text"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "water_plan",
+   "label": "①飲用水／整備予定",
+   "type": "yesno",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "water_plan_ym",
+   "label": "①飲用水／整備予定年月",
+   "type": "yearmonth",
+   "unit": "頃",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "water_plan_fee",
+   "label": "①飲用水／整備負担金",
+   "type": "money",
+   "unit": "円",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "water_pipe_status",
+   "label": "①飲用水／配管等の状況",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "water_note",
+   "label": "飲用水_備考",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 3,
+   "text": "②電気"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "elec_available_facility",
+   "label": "②電気／直ちに利用可能な施設",
+   "type": "text",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "elec_bulk_supply",
+   "label": "②電気／一括受電方式",
+   "type": "yesno",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "elec_bulk_company",
+   "label": "②電気／一括受電サービス会社",
+   "type": "text",
+   "showif": {
+    "key": "elec_bulk_supply",
+    "in": [
+     "あり"
+    ]
+   },
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "elec_bulk_contract_period",
+   "label": "②電気／契約期間",
+   "type": "text",
+   "showif": {
+    "key": "elec_bulk_supply",
+    "in": [
+     "あり"
+    ]
+   },
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "elec_retailer",
+   "label": "②電気／小売事業者",
+   "type": "select",
+   "options": [],
+   "note": "選択肢は後日設定",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "elec_retailer_other",
+   "label": "②電気／選択肢にない場合",
+   "type": "text",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "elec_plan",
+   "label": "②電気／整備予定",
+   "type": "yesno",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "elec_plan_ym",
+   "label": "②電気／整備予定年月",
+   "type": "yearmonth",
+   "unit": "頃",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "elec_plan_fee",
+   "label": "②電気／整備負担金",
+   "type": "money",
+   "unit": "円",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "elec_note",
+   "label": "電気_備考",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 3,
+   "text": "③ガス"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "gas_available_facility",
+   "label": "③ガス／直ちに利用可能な施設",
+   "type": "select",
+   "options": [
+    "都市ガス",
+    "個別プロパン",
+    "集中プロパン",
+    "無"
+   ],
+   "v": "retype",
+   "was": "text"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "gas_plan",
+   "label": "③ガス／整備予定",
+   "type": "yesno",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "gas_plan_ym",
+   "label": "③ガス／整備予定年月",
+   "type": "yearmonth",
+   "unit": "頃",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "gas_plan_fee",
+   "label": "③ガス／整備負担金",
+   "type": "money",
+   "unit": "円",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "gas_note",
+   "label": "ガス_備考",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 3,
+   "text": "④排水"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "drain_available_facility",
+   "label": "④排水／直ちに利用可能な施設",
+   "type": "select",
+   "options": [
+    "公共下水",
+    "個別浄化槽",
+    "集中浄化槽"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "drain_other_detail",
+   "label": "④排水／他の場合、詳細",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "drain_plan",
+   "label": "④排水／整備予定",
+   "type": "yesno",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "drain_plan_ym",
+   "label": "④排水／整備予定年月",
+   "type": "yearmonth",
+   "unit": "頃",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "drain_plan_fee",
+   "label": "④排水／整備負担金",
+   "type": "money",
+   "unit": "円",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "drain_note",
+   "label": "排水_備考",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 1,
+   "text": "05　宅地造成または建物建築の工事完了時における形状・構造等"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "construction_completion_applicable",
+   "label": "説明の要否",
+   "type": "select",
+   "options": [
+    "別紙にて説明します",
+    "未完成物件または新規物件に該当しないので、説明を省略します"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "construction_completion_form",
+   "label": "宅地造成または建物建築の工事完了時における形状・構造等",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 1,
+   "text": "06　一棟の建物またはその敷地に関する権利およびこれらの管理・使用に関する事項"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 2,
+   "text": "（1）敷地に関する権利の種類および内容"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "surveyed_area",
+   "label": "実測面積",
+   "type": "number",
+   "unit": "㎡",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "registered_area",
+   "label": "登記面積",
+   "type": "number",
+   "unit": "㎡",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "building_confirmation_area",
+   "label": "建築確認の対象面積",
+   "type": "number",
+   "unit": "㎡",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "right_type",
+   "label": "権利の種類",
+   "type": "select",
+   "options": [
+    "所有権",
+    "借地権（地上権）",
+    "借地権（賃借権）"
+   ],
+   "v": "retype",
+   "was": "text"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "right_target_area",
+   "label": "対象面積",
+   "type": "number",
+   "unit": "㎡",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "area_basis",
+   "label": "面積根拠",
+   "type": "select",
+   "options": [
+    "登記簿",
+    "実測"
+   ],
+   "v": "retype",
+   "was": "text"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "right_duration",
+   "label": "存続期間",
+   "type": "text",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "owner_ground_rent",
+   "label": "区分所有者の負担額（地代）",
+   "type": "money",
+   "unit": "円",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "site_right_note",
+   "label": "敷地権利_備考",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 2,
+   "text": "（2）共用部分に関する規約等の定め"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "common_area_defined",
+   "label": "共用部分に関する規約等の定め",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "common_area_scope",
+   "label": "共有部分の範囲",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "common_area_scope_bylaw",
+   "label": "管理規約",
+   "type": "text",
+   "unit": "条",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "common_share_ratio",
+   "label": "共有部の持分の割合",
+   "type": "select",
+   "options": [
+    "専有部分の床面積の割合による",
+    "その他"
+   ],
+   "v": "retype",
+   "was": "text"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "common_share_other_detail",
+   "label": "他の場合の詳細",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "common_share_bylaw",
+   "label": "管理規約",
+   "type": "text",
+   "unit": "条",
+   "v": "keep"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "common_area_note",
+   "label": "共有部分_備考",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 2,
+   "text": "（3）専有部分の用途その他の利用の制限に関する規約等の定め"
+  },
+  {
+   "kind": "fixed_rows",
+   "tab": "juusetsu",
+   "table": "exclusive_restrictions"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "exclusive_note",
+   "label": "専有部分_備考",
+   "type": "textarea",
+   "v": "keep"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 2,
+   "text": "（4）専用使用権に関する規約等の定め"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 3,
+   "text": "①一棟の建物およびその敷地の専用使用権"
+  },
+  {
+   "kind": "fixed_rows",
+   "tab": "juusetsu",
+   "table": "exclusive_use_rights"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 3,
+   "text": "②対象不動産に付随する専用使用権"
+  },
+  {
+   "kind": "rows",
+   "tab": "juusetsu",
+   "table": "attached_use_rights"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "exclusive_use_note",
+   "label": "専用使用権_備考",
+   "type": "textarea",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 2,
+   "text": "（5）所有者が負担すべき費用を特定の者にのみ減免する旨の規約等の定め"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "fee_reduction_defined",
+   "label": "規約の定め",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "fee_reduction_bylaw",
+   "label": "別添管理規約",
+   "type": "text",
+   "unit": "条",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "fee_reduction_summary",
+   "label": "規約の定めの概要",
+   "type": "textarea",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 2,
+   "text": "（6）計画修繕積立金等に関する事項"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "repair_fund_system",
+   "label": "計画修繕積立金制度",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "repair_fund_bylaw",
+   "label": "規約の定め 別添管理規約",
+   "type": "text",
+   "unit": "条",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "repair_fund_monthly",
+   "label": "修繕積立金 月額",
+   "type": "money",
+   "unit": "円",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "repair_fund_monthly_asof",
+   "label": "月額 現在日付",
+   "type": "date",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "repair_fund_arrears_exists",
+   "label": "当該専有部分に係る滞納の有無",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "repair_fund_arrears",
+   "label": "滞納額",
+   "type": "money",
+   "unit": "円",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "repair_fund_arrears_asof",
+   "label": "滞納額 現在日付",
+   "type": "date",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "repair_fund_accumulated",
+   "label": "すでに積み立てられている額",
+   "type": "money",
+   "unit": "円",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "repair_fund_accumulated_asof",
+   "label": "積立額 現在日付",
+   "type": "date",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "repair_fund_bldg_disclosure",
+   "label": "一棟の建物（団地）に係る滞納に関する情報の開示",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "repair_fund_bldg_arrears",
+   "label": "一棟の滞納額",
+   "type": "money",
+   "unit": "円",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "repair_fund_bldg_arrears_asof",
+   "label": "一棟の滞納額 現在日付",
+   "type": "date",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 2,
+   "text": "（7）通常の管理費用の額"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "mgmt_fee_monthly",
+   "label": "月額",
+   "type": "money",
+   "unit": "円",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "mgmt_fee_monthly_asof",
+   "label": "月額 現在日付",
+   "type": "date",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "mgmt_fee_arrears_exists",
+   "label": "当該専有部分に係る滞納の有無",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "mgmt_fee_arrears",
+   "label": "滞納額",
+   "type": "money",
+   "unit": "円",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "mgmt_fee_arrears_asof",
+   "label": "滞納額 現在日付",
+   "type": "date",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "mgmt_fee_bldg_disclosure",
+   "label": "一棟の建物（団地）に係る滞納に関する情報の開示",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "mgmt_fee_bldg_arrears",
+   "label": "一棟の滞納額",
+   "type": "money",
+   "unit": "円",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "mgmt_fee_bldg_arrears_asof",
+   "label": "一棟の滞納額 現在日付",
+   "type": "date",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 2,
+   "text": "（8）管理組合の名称および管理の委託先"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "mgmt_association_name",
+   "label": "管理組合の名称",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "mgmt_form",
+   "label": "管理の形態",
+   "type": "select",
+   "options": [
+    "全部委託管理",
+    "一部委託管理",
+    "自主管理"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "mgmt_company_name",
+   "label": "管理委託先 名称",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "mgmt_company_tel",
+   "label": "管理委託先 電話",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "mgmt_company_address",
+   "label": "管理委託先 所在",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "mgmt_company_reg_number",
+   "label": "マンション管理適正化法による登録番号",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 2,
+   "text": "（9）管理者等が管理組合から委託を受けて管理事務を行うマンション管理業者であるか否か"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "mgmt_operator_method",
+   "label": "管理業者管理者方式",
+   "type": "select",
+   "options": [
+    "管理業者管理者方式である",
+    "管理業者管理者方式でない"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 2,
+   "text": "（10）建物の維持修繕の実施状況の記録"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "maintenance_common_exists",
+   "label": "共用部分",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "maintenance_common_detail",
+   "label": "共用部分 内容",
+   "type": "textarea",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "maintenance_exclusive_exists",
+   "label": "専有部分（売買対象部分）",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "maintenance_exclusive_detail",
+   "label": "専有部分 内容",
+   "type": "textarea",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 2,
+   "text": "（11）その他"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "mgmt_other_note",
+   "label": "その他",
+   "type": "textarea",
+   "note": "CATV・インターネット・管理費納入方法・管理体制・総会時期・滞納状況ほか",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 1,
+   "text": "07　建物状況調査の結果の概要（既存の住宅のとき）"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "bldg_survey_applicable",
+   "label": "該当区分",
+   "type": "select",
+   "options": [
+    "該当する",
+    "該当しないので、説明を省略します"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "bldg_survey_done",
+   "label": "建物状況調査の実施の有無（1年以内）",
+   "type": "yesno",
+   "showif": {
+    "key": "bldg_survey_applicable",
+    "in": [
+     "該当する"
+    ]
+   },
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "bldg_survey_summary",
+   "label": "結果の概要",
+   "type": "textarea",
+   "showif": {
+    "key": "bldg_survey_applicable",
+    "in": [
+     "該当する"
+    ]
+   },
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 1,
+   "text": "08　建物の建築および維持保全の状況に関する書類の保存の状況・耐震診断の内容"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "docs_applicable",
+   "label": "既存の建物に",
+   "type": "select",
+   "options": [
+    "該当する",
+    "該当しないので、説明を省略します"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "doc_app_new",
+   "label": "①確認の申請書および添付図書（新築時のもの）",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "doc_cert_new",
+   "label": "②確認済証（新築時のもの）",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "doc_inspection_new",
+   "label": "③検査済証（新築時のもの）",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "renovation_applicable",
+   "label": "増改築を行った建物に",
+   "type": "select",
+   "options": [
+    "該当する",
+    "該当しない",
+    "該当するか否か不明"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "doc_app_reno",
+   "label": "④確認の申請書および添付図書（増改築等時のもの）",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "doc_cert_reno",
+   "label": "⑤確認済証（増改築等時のもの）",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "doc_inspection_reno",
+   "label": "⑥検査済証（増改築等時のもの）",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "survey_applicable",
+   "label": "建物状況調査を実施した住宅に",
+   "type": "select",
+   "options": [
+    "該当する",
+    "該当しない",
+    "該当するか否か不明"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "doc_survey_report",
+   "label": "⑦建物状況調査報告書",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "periodic_report_applicable",
+   "label": "建築基準法第12条の規定による定期報告の対象である住宅に",
+   "type": "select",
+   "options": [
+    "該当する",
+    "該当しない",
+    "該当するか否か不明"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "doc_periodic_survey",
+   "label": "⑧定期調査報告書",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "doc_periodic_inspection",
+   "label": "⑧定期検査報告書（昇降機等）",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "housing_perf_applicable",
+   "label": "既存住宅性能評価（建設）を受けた住宅に",
+   "type": "select",
+   "options": [
+    "該当する",
+    "該当しない",
+    "該当するか否か不明"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "doc_housing_perf",
+   "label": "⑨既存住宅性能評価書（現況検査・評価書）",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "pre1981_applicable",
+   "label": "昭和56年5月31日以前に新築の工事に着手した既存の建物に",
+   "type": "select",
+   "options": [
+    "該当する",
+    "該当しないので、説明を省略します"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "seismic_grade",
+   "label": "⑨-1 耐震等級の区分",
+   "type": "select",
+   "options": [
+    "1以上（適）",
+    "0（不適）"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "doc_seismic_report",
+   "label": "⑩耐震診断結果報告書",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "doc_seismic_conformity_note",
+   "label": "⑩結果報告書の記載中、耐震基準適合性を証する記載",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "doc_defect_insurance",
+   "label": "⑪既存住宅売買瑕疵保険の付保証明書",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "doc_seismic_certificate",
+   "label": "⑫耐震基準適合証明書",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "doc_other_name",
+   "label": "⑬その他（書類名）",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "doc_other",
+   "label": "⑬その他",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "docs_note",
+   "label": "書類保存_備考",
+   "type": "textarea",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 1,
+   "text": "09　建築確認済証等の発行年月日・番号"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "confirm_cert_exists",
+   "label": "確認済証（新築時）",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "confirm_cert_date",
+   "label": "確認済証 年月日",
+   "type": "date",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "confirm_cert_number",
+   "label": "確認済証 番号",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "inspection_cert_exists",
+   "label": "検査済証（新築時）",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "inspection_cert_date",
+   "label": "検査済証 年月日",
+   "type": "date",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "inspection_cert_number",
+   "label": "検査済証 番号",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "confirm_cert_note",
+   "label": "建築確認_備考",
+   "type": "textarea",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 1,
+   "text": "10　住宅性能評価を受けた新築住宅である場合"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "housing_perf_new_applicable",
+   "label": "該当区分",
+   "type": "select",
+   "options": [
+    "該当する",
+    "該当しないので、説明を省略します"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "housing_perf_design",
+   "label": "1. 設計住宅性能評価書",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "housing_perf_construction",
+   "label": "2. 建設住宅性能評価書",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 1,
+   "text": "11　石綿使用調査の内容"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "asbestos_record_exists",
+   "label": "石綿使用調査結果の記録の有無",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "asbestos_detail",
+   "label": "調査結果の内容",
+   "type": "textarea",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 1,
+   "text": "12〜14　災害関係の区域"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "developed_land_disaster_area",
+   "label": "12　造成宅地防災区域",
+   "type": "select",
+   "options": [
+    "内",
+    "外"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "landslide_warning_area",
+   "label": "13　土砂災害警戒区域",
+   "type": "select",
+   "options": [
+    "内",
+    "外"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "tsunami_warning_area",
+   "label": "14　津波災害警戒区域",
+   "type": "select",
+   "options": [
+    "内",
+    "外"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 1,
+   "text": "15　水防法の規定により市町村の長が提供する図面（水害ハザードマップ）における所在地"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "hazard_flood",
+   "label": "洪水",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "hazard_inland_water",
+   "label": "雨水出水（内水）",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "hazard_storm_surge",
+   "label": "高潮",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "hazard_location",
+   "label": "水害ハザードマップにおける宅地建物の所在地",
+   "type": "textarea",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 1,
+   "text": "II-1　売買代金および交換差金以外に売主・買主間で授受される金銭の額"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "ii_sale_price",
+   "label": "売買代金",
+   "type": "money",
+   "unit": "円",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "ii_tax_equivalent",
+   "label": "うち消費税等相当額",
+   "type": "money",
+   "unit": "円",
+   "v": "new"
+  },
+  {
+   "kind": "rows",
+   "tab": "juusetsu",
+   "table": "money_transfers"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "ii_money_note",
+   "label": "備考",
+   "type": "textarea",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 1,
+   "text": "II-2　契約の解除等に関する事項"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "cancel_deposit_exists",
+   "label": "（1）手付解除",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "cancel_deposit_deadline",
+   "label": "手付解除期日",
+   "type": "date",
+   "showif": {
+    "key": "cancel_deposit_exists",
+    "in": [
+     "あり"
+    ]
+   },
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "cancel_loss_exists",
+   "label": "（2）引渡し完了前の滅失・損傷による解除",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "cancel_loan_exists",
+   "label": "（3）融資利用の特約による解除",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "cancel_loan_deadline",
+   "label": "契約解除期日（融資）",
+   "type": "date",
+   "showif": {
+    "key": "cancel_loan_exists",
+    "in": [
+     "あり"
+    ]
+   },
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "cancel_consent_exists",
+   "label": "（4）譲渡承諾の特約による解除",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "cancel_consent_deadline",
+   "label": "契約解除期日（譲渡承諾）",
+   "type": "date",
+   "showif": {
+    "key": "cancel_consent_exists",
+    "in": [
+     "あり"
+    ]
+   },
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "cancel_breach_exists",
+   "label": "（5）契約違反による解除",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "cancel_note",
+   "label": "備考",
+   "type": "textarea",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 1,
+   "text": "II-3　損害賠償額の予定または違約金に関する事項"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "ii_penalty_type",
+   "label": "違約金の区分",
+   "type": "select",
+   "options": [
+    "手付金の額",
+    "売買代金の10%相当額",
+    "売買代金の20%相当額",
+    "その他"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "ii_penalty_other",
+   "label": "その他の金額",
+   "type": "money",
+   "unit": "円",
+   "showif": {
+    "key": "ii_penalty_type",
+    "in": [
+     "その他"
+    ]
+   },
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 1,
+   "text": "II-4　手付金等の保全措置の概要（宅地建物取引業者が自ら売主の場合）"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "deposit_protection_applicable",
+   "label": "該当区分",
+   "type": "select",
+   "options": [
+    "該当する",
+    "該当しない"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "deposit_protection_choice",
+   "label": "保全措置",
+   "type": "select",
+   "options": [
+    "講じない",
+    "講じる"
+   ],
+   "showif": {
+    "key": "deposit_protection_applicable",
+    "in": [
+     "該当する"
+    ]
+   },
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "deposit_protection_property",
+   "label": "物件区分",
+   "type": "select",
+   "options": [
+    "未完成物件",
+    "完成物件"
+   ],
+   "showif": {
+    "key": "deposit_protection_applicable",
+    "in": [
+     "該当する"
+    ]
+   },
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "deposit_protection_method",
+   "label": "保全方式",
+   "type": "select",
+   "options": [
+    "保証委託契約",
+    "保証保険契約",
+    "手付金等寄託契約および質権設定契約"
+   ],
+   "showif": {
+    "key": "deposit_protection_choice",
+    "in": [
+     "講じる"
+    ]
+   },
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "deposit_protection_org",
+   "label": "保全機関",
+   "type": "text",
+   "showif": {
+    "key": "deposit_protection_choice",
+    "in": [
+     "講じる"
+    ]
+   },
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 1,
+   "text": "II-5　支払金または預り金の保全措置の概要"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "payment_protection_choice",
+   "label": "保全措置を講じるかどうか",
+   "type": "select",
+   "options": [
+    "講じる",
+    "講じない"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "payment_protection_org",
+   "label": "保全措置を講じる機関",
+   "type": "text",
+   "showif": {
+    "key": "payment_protection_choice",
+    "in": [
+     "講じる"
+    ]
+   },
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 1,
+   "text": "II-6　金銭の貸借のあっせん"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "loan_arrangement",
+   "label": "あっせん",
+   "type": "select",
+   "options": [
+    "有",
+    "無"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "rows",
+   "tab": "juusetsu",
+   "table": "loan_arrangements"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "loan_arrangement_note",
+   "label": "備考",
+   "type": "textarea",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 1,
+   "text": "II-7〜9"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "nonconformity_measure",
+   "label": "II-7　契約不適合責任の履行に関する措置",
+   "type": "select",
+   "options": [
+    "講じる",
+    "講じない"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "nonconformity_measure_detail",
+   "label": "措置の内容",
+   "type": "textarea",
+   "showif": {
+    "key": "nonconformity_measure",
+    "in": [
+     "講じる"
+    ]
+   },
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "installment_sale",
+   "label": "II-8　割賦販売",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "nonconformity_repair",
+   "label": "II-9　契約不適合による修補請求",
+   "type": "yesno",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "nonconformity_repair_detail",
+   "label": "修補請求の内容",
+   "type": "textarea",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 1,
+   "text": "III　その他重要な事項"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "other_important_matters",
+   "label": "その他重要な事項",
+   "type": "textarea",
+   "note": "周辺環境・法令・中古物件の設備・解体リフォーム・浸水記録・液状化・鍵・エアコン等の設置・集合住宅・管理規約の特記事項ほか",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 1,
+   "text": "IV　付属書類"
+  },
+  {
+   "kind": "checklist",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "attachments",
+   "label": "添付する書類にチェック",
+   "items": [
+    "1 重要事項説明書補足資料",
+    "2 区分建物不動産登記情報",
+    "3 土地不動産登記情報",
+    "4 公図（写）",
+    "5 各階平面図・建物図面（写）",
+    "6 分譲時パンフレット（写）",
+    "7 固定資産（土地・家屋）関係証明書（写）",
+    "8 都市計画情報",
+    "9 台帳記載事項証明（写）",
+    "10 建築計画概要書（写）",
+    "11 都市計画地区計画の変更",
+    "12 道路台帳平面図（写）",
+    "13 中高層建築物の建築計画の事前公開等に関する指導要綱",
+    "14 建築工事に伴う緑化の基準について",
+    "15 市街地開発事業指導要綱",
+    "16 マンションの適正な管理の推進に関する条例",
+    "17 景観計画の概要",
+    "18 海岸保全区域図・港湾隣接地域・海岸保全区域",
+    "19 管理規約（写）",
+    "20 重要事項に関する報告書",
+    "21 確認済証（写）・検査済証（写）",
+    "22 定期調査報告書（写）",
+    "23 管理事務仕様書（写）",
+    "24 議案書・議事録（各写）",
+    "25 長期修繕計画〈総括表〉（写）",
+    "26 洪水ハザードマップ・浸水実績図",
+    "27 開発事業で新たに設置する道路は無電柱化が原則です！",
+    "28 国土交通省リーフレット",
+    "29 暴力団排除条例",
+    "30 「反社会的勢力排除条項」について",
+    "31 販売チラシ（写）"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "attachments_other",
+   "label": "付属書類（その他）",
+   "type": "textarea",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 1,
+   "text": "V　備考"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "remarks",
+   "label": "備考",
+   "type": "textarea",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 1,
+   "text": "VI　その他の事項"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "deal_type_1",
+   "label": "取引の態様",
+   "type": "select",
+   "options": [
+    "売買",
+    "交換"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "deal_type_2",
+   "label": "取引の態様（区分）",
+   "type": "select",
+   "options": [
+    "媒介",
+    "代理",
+    "売主"
+   ],
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 3,
+   "text": "宅地建物取引業者"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "agent_license_number",
+   "label": "免許証番号",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "agent_office_address",
+   "label": "主たる事務所の所在地",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "agent_company_name",
+   "label": "商号",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "agent_representative",
+   "label": "代表者氏名",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 3,
+   "text": "説明をする宅地建物取引士"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "agent_staff_reg_number",
+   "label": "登録番号",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "agent_staff_name",
+   "label": "氏名",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "agent_staff_office",
+   "label": "業務に従事する事務所",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "agent_staff_tel",
+   "label": "電話番号",
+   "type": "text",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 3,
+   "text": "供託所等に関する説明"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "deposit_office",
+   "label": "営業保証金の供託所およびその所在地",
+   "type": "textarea",
+   "v": "new"
+  },
+  {
+   "kind": "heading",
+   "tab": "juusetsu",
+   "level": 1,
+   "text": "別紙　反社会的勢力の排除に関する追加事項"
+  },
+  {
+   "kind": "field",
+   "tab": "juusetsu",
+   "table": "deals",
+   "key": "antisocial_clause",
+   "label": "追加する",
+   "type": "yesno",
+   "v": "new"
+  }
+ ],
+ "row_fields": {
+  "consulting_fees": [
+   {
+    "key": "amount",
+    "label": "コンサル料（税込）",
+    "type": "money",
+    "unit": "円"
+   },
+   {
+    "key": "counterparty",
+    "label": "相手先",
+    "type": "text"
+   },
+   {
+    "key": "direction",
+    "label": "入出金",
+    "type": "select",
+    "options": [
+     "入金",
+     "出金"
+    ]
+   }
+  ],
+  "partnership_fees": [
+   {
+    "key": "amount",
+    "label": "提携報酬（税込）",
+    "type": "money",
+    "unit": "円"
+   },
+   {
+    "key": "counterparty",
+    "label": "相手先",
+    "type": "text"
+   },
+   {
+    "key": "direction",
+    "label": "入出金",
+    "type": "select",
+    "options": [
+     "入金",
+     "出金"
+    ]
+   }
+  ],
+  "referral_fees": [
+   {
+    "key": "amount",
+    "label": "紹介料（税込）",
+    "type": "money",
+    "unit": "円"
+   },
+   {
+    "key": "counterparty",
+    "label": "相手先",
+    "type": "text"
+   },
+   {
+    "key": "direction",
+    "label": "入出金",
+    "type": "select",
+    "options": [
+     "入金",
+     "出金"
+    ]
+   }
+  ],
+  "unit_floor_areas": [
+   {
+    "key": "floor_part",
+    "label": "階部分",
+    "type": "text"
+   },
+   {
+    "key": "area",
+    "label": "床面積",
+    "type": "number",
+    "unit": "㎡"
+   }
+  ],
+  "land_parcels": [
+   {
+    "key": "mark",
+    "label": "符号",
+    "type": "text"
+   },
+   {
+    "key": "location",
+    "label": "所在および地番",
+    "type": "text"
+   },
+   {
+    "key": "land_category",
+    "label": "地目",
+    "type": "text"
+   },
+   {
+    "key": "area",
+    "label": "地積（登記簿）",
+    "type": "number",
+    "unit": "㎡"
+   },
+   {
+    "key": "site_right_type",
+    "label": "敷地権の種類",
+    "type": "text"
+   },
+   {
+    "key": "site_right_ratio",
+    "label": "敷地権の割合（準）共有持分",
+    "type": "text"
+   }
+  ],
+  "city_plan_facilities": [
+   {
+    "key": "facility_type",
+    "label": "種別",
+    "type": "select",
+    "options": [
+     "都市計画道路",
+     "その他の都市計画施設"
+    ]
+   },
+   {
+    "key": "decision_status",
+    "label": "決定区分",
+    "type": "select",
+    "options": [
+     "計画決定",
+     "事業決定",
+     "未定"
+    ]
+   },
+   {
+    "key": "name",
+    "label": "名称",
+    "type": "text"
+   },
+   {
+    "key": "width",
+    "label": "幅員",
+    "type": "number",
+    "unit": "m"
+   }
+  ],
+  "far_rows": [
+   {
+    "key": "use_district",
+    "label": "用途地域",
+    "type": "text"
+   },
+   {
+    "key": "building_coverage_ratio",
+    "label": "建ぺい率（指定）",
+    "type": "percent",
+    "unit": "%"
+   },
+   {
+    "key": "floor_area_ratio",
+    "label": "容積率（指定）",
+    "type": "percent",
+    "unit": "%"
+   }
+  ],
+  "front_roads": [
+   {
+    "key": "road_type",
+    "label": "道路の種類",
+    "type": "text"
+   },
+   {
+    "key": "road_ownership",
+    "label": "公道・私道の別",
+    "type": "select",
+    "options": [
+     "公道",
+     "私道"
+    ]
+   },
+   {
+    "key": "frontage_direction",
+    "label": "接道方向",
+    "type": "text",
+    "unit": "側"
+   },
+   {
+    "key": "width",
+    "label": "幅員",
+    "type": "number",
+    "unit": "m"
+   },
+   {
+    "key": "frontage_length",
+    "label": "接道の長さ",
+    "type": "number",
+    "unit": "m"
+   }
+  ],
+  "other_private_roads": [
+   {
+    "key": "owner_address",
+    "label": "所在者住所",
+    "type": "text"
+   },
+   {
+    "key": "owner_name",
+    "label": "所在者氏名",
+    "type": "text"
+   },
+   {
+    "key": "usage_conditions",
+    "label": "利用の条件等",
+    "type": "textarea"
+   }
+  ],
+  "exclusive_restrictions": [
+   {
+    "key": "bylaw_defined",
+    "label": "規約等の定めの有無",
+    "type": "yesno"
+   },
+   {
+    "key": "bylaw",
+    "label": "管理規約",
+    "type": "text",
+    "unit": "条"
+   },
+   {
+    "key": "house_rules",
+    "label": "使用細則",
+    "type": "text",
+    "unit": "条"
+   },
+   {
+    "key": "restriction_content",
+    "label": "制限の内容",
+    "type": "textarea"
+   }
+  ],
+  "exclusive_use_rights": [
+   {
+    "key": "exists",
+    "label": "有無",
+    "type": "yesno"
+   },
+   {
+    "key": "holder",
+    "label": "専用使用をなしうる者",
+    "type": "text"
+   },
+   {
+    "key": "fee_exists",
+    "label": "専用使用料の有無",
+    "type": "yesno"
+   },
+   {
+    "key": "fee_attribution",
+    "label": "帰属先",
+    "type": "text"
+   },
+   {
+    "key": "note",
+    "label": "備考",
+    "type": "textarea"
+   }
+  ],
+  "attached_use_rights": [
+   {
+    "key": "name",
+    "label": "名称",
+    "type": "text"
+   },
+   {
+    "key": "detail",
+    "label": "使用部分、面積、期間、料金等",
+    "type": "textarea"
+   }
+  ],
+  "money_transfers": [
+   {
+    "key": "purpose",
+    "label": "授受の目的",
+    "type": "text"
+   },
+   {
+    "key": "amount",
+    "label": "金額",
+    "type": "money",
+    "unit": "円"
+   },
+   {
+    "key": "note",
+    "label": "備考",
+    "type": "textarea"
+   }
+  ],
+  "loan_arrangements": [
+   {
+    "key": "institution",
+    "label": "金融機関",
+    "type": "text"
+   },
+   {
+    "key": "amount",
+    "label": "金額",
+    "type": "money",
+    "unit": "万円"
+   },
+   {
+    "key": "approval_deadline",
+    "label": "融資承認取得期日",
+    "type": "date"
+   },
+   {
+    "key": "interest_rate",
+    "label": "金利（年）",
+    "type": "percent",
+    "unit": "%"
+   },
+   {
+    "key": "term_years",
+    "label": "借入期間",
+    "type": "number",
+    "unit": "年"
+   },
+   {
+    "key": "repayment_method",
+    "label": "返済方法",
+    "type": "text"
+   },
+   {
+    "key": "guarantee_fee",
+    "label": "保証料",
+    "type": "money",
+    "unit": "円"
+   },
+   {
+    "key": "loan_admin_fee",
+    "label": "ローン事務手数料（税込）",
+    "type": "money",
+    "unit": "円"
+   }
+  ]
+ },
+ "list_columns": [
+  "id",
+  "contract_date",
+  "price"
+ ],
+ "system_fields": {
+  "deals": [
+   "id",
+   "created_at",
+   "updated_at"
+  ],
+  "rows": [
+   "id",
+   "deal_id",
+   "row_no"
+  ],
+  "fixed_rows": [
+   "id",
+   "deal_id",
+   "restriction_type"
+  ]
+ }
 };
 
 /* =========================================================================
- * 派生定数
+ * 派生定数（すべて SCHEMA から機械的に導出。ハードコードしない）
  * ========================================================================= */
-const ROW_TABLES = ["city_plan_facilities", "far_rows", "front_roads", "other_private_roads"];
-const FIXED_TABLE = "exclusive_restrictions";
-const ALL_STORES = ["deals", ...ROW_TABLES, FIXED_TABLE];
+const ROW_TABLES = SCHEMA.tables.filter(t => t.kind === "rows").map(t => t.key);
+const FIXED_TABLES = SCHEMA.tables.filter(t => t.kind === "fixed_rows").map(t => t.key);
+const ALL_STORES = ["deals", ...ROW_TABLES, ...FIXED_TABLES];
+
+const TABLE_LABELS = {};
+const FIXED_ORDER_BY_TABLE = {};
+const MAX_ROWS_BY_TABLE = {};
+const TABLE_NOTE_BY_TABLE = {};
+SCHEMA.tables.forEach(t => {
+  TABLE_LABELS[t.key] = t.label;
+  if (t.kind === "fixed_rows") FIXED_ORDER_BY_TABLE[t.key] = t.fixed;
+  if (t.max_rows) MAX_ROWS_BY_TABLE[t.key] = t.max_rows;
+  if (t.note) TABLE_NOTE_BY_TABLE[t.key] = t.note;
+});
+// 固定行テーブルの先頭列見出し（schemaにはUI文言までは定義されていないため、
+// 内容に即した表現を1テーブルずつ割り当てる。他に固定行テーブルが増えた場合は「種別」を既定とする）。
+const FIXED_HEADER_LABEL = { exclusive_restrictions: "制限種別", exclusive_use_rights: "対象" };
 
 const FIELDS_BY_TAB = {};
 SCHEMA.tabs.forEach(t => { FIELDS_BY_TAB[t.key] = []; });
@@ -1763,10 +5402,108 @@ SCHEMA.layout.forEach(item => {
   if (item.kind === "field" && item.table === "deals") DEAL_FIELD_DEFS[item.key] = item;
 });
 
-const FIXED_ORDER = SCHEMA.tables.find(t => t.key === FIXED_TABLE).fixed;
+const CHECKLIST_DEFS = {};
+SCHEMA.layout.forEach(item => {
+  if (item.kind === "checklist") CHECKLIST_DEFS[item.key] = item;
+});
 
-const TABLE_LABELS = {};
-SCHEMA.tables.forEach(t => { TABLE_LABELS[t.key] = t.label; });
+/* ---- computed: 「a + b」「a * b / c」「a * b / 100」形式のみを想定した
+   簡易な左から右への式評価器（Function/evalは使わない）。 ---- */
+function tokenizeFormula(f) {
+  return f.match(/[A-Za-z_][A-Za-z0-9_]*|\d+(?:\.\d+)?|[+\-*/]/g) || [];
+}
+function isVarToken(t) { return /^[A-Za-z_]/.test(t); }
+const COMPUTED_DEFS = Object.values(DEAL_FIELD_DEFS)
+  .filter(d => !!d.computed)
+  .map(d => ({ key: d.key, formula: d.computed, tokens: tokenizeFormula(d.computed) }));
+
+function evalComputedTokens(tokens, deal) {
+  const varTokens = tokens.filter(isVarToken);
+  const allEmpty = varTokens.length > 0 && varTokens.every(k => {
+    const v = deal[k];
+    return v === null || v === undefined || v === "";
+  });
+  if (allEmpty) return null;
+  const val = (t) => {
+    if (isVarToken(t)) {
+      const v = deal[t];
+      return (v === null || v === undefined || v === "") ? 0 : Number(v);
+    }
+    return Number(t);
+  };
+  let result = val(tokens[0]);
+  for (let i = 1; i + 1 < tokens.length; i += 2) {
+    const op = tokens[i];
+    const rhs = val(tokens[i + 1]);
+    if (op === "+") result += rhs;
+    else if (op === "-") result -= rhs;
+    else if (op === "*") result *= rhs;
+    else if (op === "/") {
+      if (rhs === 0) return null;
+      result = result / rhs;
+    }
+  }
+  return isFinite(result) ? result : null;
+}
+/** すべての computed 項目を、依存関係の連鎖が収束するまで最大5回再計算する。 */
+function recomputeAllComputed(deal) {
+  for (let pass = 0; pass < 5; pass++) {
+    let changed = false;
+    COMPUTED_DEFS.forEach(def => {
+      const nv = evalComputedTokens(def.tokens, deal);
+      const ov = (deal[def.key] === undefined) ? null : deal[def.key];
+      if (nv !== ov) { deal[def.key] = nv; changed = true; }
+    });
+    if (!changed) break;
+  }
+}
+
+/* ---- showif: 条件表示。判定は常に「現在の値」に対して行い、非表示中も値は保持する。 ---- */
+const SHOWIF_BY_DRIVER = {};
+Object.values(DEAL_FIELD_DEFS).forEach(def => {
+  if (def.showif) {
+    const dk = def.showif.key;
+    (SHOWIF_BY_DRIVER[dk] = SHOWIF_BY_DRIVER[dk] || []).push(def.key);
+  }
+});
+function isShowifVisible(def, _visited) {
+  if (!def.showif) return true;
+  const visited = _visited || new Set();
+  if (visited.has(def.key)) return true; // 循環参照ガード
+  visited.add(def.key);
+  // driver自身がshowifを持ち、その結果driverが非表示なら、この項目も非表示にする（推移的判定）。
+  const driverDef = DEAL_FIELD_DEFS[def.showif.key];
+  if (driverDef && driverDef.showif && !isShowifVisible(driverDef, visited)) {
+    return false;
+  }
+  const v = state.deal[def.showif.key];
+  return def.showif.in.indexOf(v) !== -1;
+}
+function applyShowifForKeyDom(key) {
+  const def = DEAL_FIELD_DEFS[key];
+  if (!def || !def.showif) return;
+  const row = document.getElementById("fr_" + key);
+  if (row) row.hidden = !isShowifVisible(def);
+}
+/** driverKey の値が変わったときに呼ぶ。依存する項目を辿って再表示判定し、連鎖にも対応する。 */
+function applyShowifCascade(driverKey) {
+  const queue = (SHOWIF_BY_DRIVER[driverKey] || []).slice();
+  const seen = new Set();
+  while (queue.length) {
+    const depKey = queue.shift();
+    applyShowifForKeyDom(depKey);
+    if (!seen.has(depKey)) {
+      seen.add(depKey);
+      (SHOWIF_BY_DRIVER[depKey] || []).forEach(k => queue.push(k));
+    }
+  }
+}
+/** 画面構築直後に、すべての showif 項目の表示状態を現在値で揃え直す。 */
+function applyAllShowifs() {
+  Object.values(DEAL_FIELD_DEFS).forEach(def => {
+    if (def.showif) applyShowifForKeyDom(def.key);
+  });
+}
 
 /* =========================================================================
  * アプリ状態
@@ -1775,8 +5512,8 @@ const state = {
   view: "list",        // 'list' | 'edit'
   activeTab: "contract",
   deal: null,
-  rows: {},             // { table: [ {..., _uid, row_no} ] }
-  fixed: [],            // [ {..., _uid, restriction_type} ] x4
+  rows: {},             // { table: [ {..., _uid, row_no} ] }  table は ROW_TABLES の各キー
+  fixed: {},            // { table: [ {..., _uid, restriction_type} ] }  table は FIXED_TABLES の各キー
   dirty: false,
   rowUidCounter: 1,
 };
@@ -1840,7 +5577,11 @@ function normalizeDealRecord(rec) {
     }
     d[def.key] = v;
   });
-  recomputePrice(d);
+  Object.keys(CHECKLIST_DEFS).forEach(key => {
+    const v = rec[key];
+    d[key] = Array.isArray(v) ? v.filter(x => typeof x === "string") : [];
+  });
+  recomputeAllComputed(d);
   return d;
 }
 
@@ -1863,14 +5604,6 @@ function ensureRowDefaults(table, row) {
   return r;
 }
 
-function recomputePrice(deal) {
-  const b = deal.body_price, t = deal.tax_amount;
-  const bEmpty = (b === null || b === undefined);
-  const tEmpty = (t === null || t === undefined);
-  if (bEmpty && tEmpty) { deal.price = null; return; }
-  deal.price = (bEmpty ? 0 : Number(b)) + (tEmpty ? 0 : Number(t));
-}
-
 function blankDeal() {
   return normalizeDealRecord({});
 }
@@ -1883,9 +5616,10 @@ function blankRow(table, rowNo) {
   return r;
 }
 
-function blankFixedSet() {
-  return FIXED_ORDER.map(type => {
-    const r = ensureRowDefaults(FIXED_TABLE, {});
+function blankFixedSet(table) {
+  const order = FIXED_ORDER_BY_TABLE[table];
+  return order.map(type => {
+    const r = ensureRowDefaults(table, {});
     r.id = null;
     r.restriction_type = type;
     r._uid = state.rowUidCounter++;
@@ -1897,7 +5631,8 @@ function newDeal() {
   state.deal = blankDeal();
   state.rows = {};
   ROW_TABLES.forEach(t => { state.rows[t] = [blankRow(t, 1)]; });
-  state.fixed = blankFixedSet();
+  state.fixed = {};
+  FIXED_TABLES.forEach(t => { state.fixed[t] = blankFixedSet(t); });
   state.dirty = false;
   state.activeTab = "contract";
 }
@@ -1917,21 +5652,26 @@ async function loadDeal(id) {
       return nr;
     });
   }
-  const fixedAll = await idbGetAllByIndex(FIXED_TABLE, "deal_id", id);
-  state.fixed = FIXED_ORDER.map(type => {
-    const found = fixedAll.find(r => r.restriction_type === type) || {};
-    const nr = ensureRowDefaults(FIXED_TABLE, found);
-    nr.id = (found.id !== undefined) ? found.id : null;
-    nr.restriction_type = type;
-    nr._uid = state.rowUidCounter++;
-    return nr;
-  });
+  state.fixed = {};
+  for (const table of FIXED_TABLES) {
+    const order = FIXED_ORDER_BY_TABLE[table];
+    const all = await idbGetAllByIndex(table, "deal_id", id);
+    state.fixed[table] = order.map(type => {
+      const found = all.find(r => r.restriction_type === type) || {};
+      const nr = ensureRowDefaults(table, found);
+      nr.id = (found.id !== undefined) ? found.id : null;
+      nr.restriction_type = type;
+      nr._uid = state.rowUidCounter++;
+      return nr;
+    });
+  }
   state.dirty = false;
   state.activeTab = "contract";
 }
 
 /* =========================================================================
  * IndexedDB
+ * v1(v0.2.0までの6ストア) → v2 で9ストア追加。既存ストアは削除・再作成しない。
  * ========================================================================= */
 function openDB() {
   return new Promise((resolve, reject) => {
@@ -1941,7 +5681,7 @@ function openDB() {
       if (!d.objectStoreNames.contains("deals")) {
         d.createObjectStore("deals", { keyPath: "id", autoIncrement: true });
       }
-      [...ROW_TABLES, FIXED_TABLE].forEach(name => {
+      [...ROW_TABLES, ...FIXED_TABLES].forEach(name => {
         if (!d.objectStoreNames.contains(name)) {
           const s = d.createObjectStore(name, { keyPath: "id", autoIncrement: true });
           s.createIndex("deal_id", "deal_id", { unique: false });
@@ -2052,8 +5792,10 @@ function renderInputForType(def, value, bind) {
       return '<input type="text" inputmode="numeric" class="input input-money"' + idAttr + attrs + ' value="' + escapeHtml(disp) + '"' + roAttr + '>';
     }
     case "number":
-    case "percent":
-      return '<input type="number" step="any" class="input input-number"' + idAttr + attrs + ' value="' + ((value === null || value === undefined) ? "" : value) + '">';
+    case "percent": {
+      const roAttr = def.readonly ? " readonly" : "";
+      return '<input type="number" step="any" class="input input-number"' + idAttr + attrs + ' value="' + ((value === null || value === undefined) ? "" : value) + '"' + roAttr + '>';
+    }
     case "date":
       return '<input type="date" class="input"' + idAttr + attrs + ' value="' + escapeHtml(value || "") + '">';
     case "time":
@@ -2062,16 +5804,19 @@ function renderInputForType(def, value, bind) {
       return '<input type="month" class="input"' + idAttr + attrs + ' value="' + escapeHtml(value || "") + '">';
     case "yesno": {
       const opts = ["", "あり", "なし"];
-      const optsHtml = opts.map(o => '<option value="' + escapeHtml(o) + '"' + (value === o ? " selected" : "") + '>' + (o === "" ? "" : escapeHtml(o)) + '</option>').join("");
+      const hasLegacy = value !== null && value !== undefined && value !== "" && opts.indexOf(value) === -1;
+      const legacyHtml = hasLegacy ? ('<option value="' + escapeHtml(value) + '" selected>（旧データ）' + escapeHtml(value) + '</option>') : "";
+      const optsHtml = '<option value=""' + (value === "" ? " selected" : "") + '></option>' + legacyHtml +
+        ["あり", "なし"].map(o => '<option value="' + escapeHtml(o) + '"' + (value === o ? " selected" : "") + '>' + escapeHtml(o) + '</option>').join("");
       return '<select class="input"' + idAttr + attrs + '>' + optsHtml + '</select>';
     }
     case "select": {
       const options = def.options || [];
-      let optsHtml = '<option value=""' + (!value ? " selected" : "") + '></option>' +
+      const hasLegacy = value !== null && value !== undefined && value !== "" && options.indexOf(value) === -1;
+      const legacyHtml = hasLegacy ? ('<option value="' + escapeHtml(value) + '" selected>（旧データ）' + escapeHtml(value) + '</option>') : "";
+      const optsHtml = '<option value=""' + (!value ? " selected" : "") + '></option>' + legacyHtml +
         options.map(o => '<option value="' + escapeHtml(o) + '"' + (value === o ? " selected" : "") + '>' + escapeHtml(o) + '</option>').join("");
-      let html = '<select class="input"' + idAttr + attrs + '>' + optsHtml + '</select>';
-      if (options.length === 0) html += '<span class="note-inline">選択肢は後日設定</span>';
-      return html;
+      return '<select class="input"' + idAttr + attrs + '>' + optsHtml + '</select>';
     }
     case "checkbox":
       return '<input type="checkbox" class="input-checkbox"' + idAttr + attrs + (value ? " checked" : "") + '>';
@@ -2080,33 +5825,63 @@ function renderInputForType(def, value, bind) {
   }
 }
 
-function renderHeading(item) {
+/** 見出し文字列を「先頭の記号部分（全角スペースまで）」と「残り」に分ける。
+    区切りの全角スペースが無い見出し（例:「II-7〜9」）は全体を記号部分として扱う。 */
+function splitHeadingBadge(text) {
+  const idx = text.indexOf("　");
+  if (idx === -1) return { badge: text, sep: "", rest: "" };
+  return { badge: text.slice(0, idx), sep: "　", rest: text.slice(idx + 1) };
+}
+
+function renderHeading(item, idAttr) {
+  idAttr = idAttr || "";
   if (item.level === 1) {
-    const m = item.text.match(/^(\d{2})(\s+)([\s\S]*)$/);
-    if (m) {
-      return '<div class="heading heading-1" role="heading" aria-level="1"><span class="h1-badge">' + escapeHtml(m[1]) + '</span>' + escapeHtml(m[2]) + '<span class="h1-title">' + escapeHtml(m[3]) + '</span></div>';
+    const parts = splitHeadingBadge(item.text);
+    if (parts.sep) {
+      return '<div class="heading heading-1"' + idAttr + ' role="heading" aria-level="1"><span class="h1-badge">' + escapeHtml(parts.badge) + '</span>' + escapeHtml(parts.sep) + '<span class="h1-title">' + escapeHtml(parts.rest) + '</span></div>';
     }
-    return '<div class="heading heading-1" role="heading" aria-level="1"><span class="h1-title">' + escapeHtml(item.text) + '</span></div>';
+    return '<div class="heading heading-1"' + idAttr + ' role="heading" aria-level="1"><span class="h1-badge">' + escapeHtml(parts.badge) + '</span></div>';
   }
-  if (item.level === 2) return '<div class="heading heading-2" role="heading" aria-level="2">' + escapeHtml(item.text) + '</div>';
-  return '<div class="heading heading-3" role="heading" aria-level="3">' + escapeHtml(item.text) + '</div>';
+  if (item.level === 2) return '<div class="heading heading-2"' + idAttr + ' role="heading" aria-level="2">' + escapeHtml(item.text) + '</div>';
+  return '<div class="heading heading-3"' + idAttr + ' role="heading" aria-level="3">' + escapeHtml(item.text) + '</div>';
 }
 
 function renderFieldRow(def, spanMode) {
   const value = state.deal[def.key];
   const inputHtml = renderInputForType(def, value, { scope: "deal", key: def.key });
   const unitHtml = def.unit ? ('<span class="unit">' + escapeHtml(def.unit) + '</span>') : "";
+  const noteHtml = def.note ? ('<p class="field-note">' + escapeHtml(def.note) + '</p>') : "";
   let cls = "field-row";
   if (spanMode === "wide") cls += " field-row-wide";
   else if (spanMode === "span2") cls += " field-row-span2";
-  return '<div class="' + cls + '"><label class="field-label" for="f_' + def.key + '">' + escapeHtml(def.label) + '</label>' +
-    '<div class="field-input">' + inputHtml + unitHtml + '</div></div>';
+  let hiddenAttr = "";
+  if (def.showif && !isShowifVisible(def)) hiddenAttr = " hidden";
+  return '<div class="' + cls + '" id="fr_' + def.key + '"' + hiddenAttr + '><label class="field-label" for="f_' + def.key + '">' + escapeHtml(def.label) + '</label>' +
+    '<div class="field-input">' + inputHtml + unitHtml + '</div>' + noteHtml + '</div>';
+}
+
+/** checklist: 見出し＋チェックボックスのグリッドを「全幅ブロック」として描画する
+    （グループ行の左見出し列には入れない）。保存形式はチェック済みラベル文字列の配列。 */
+function renderChecklistBlock(item) {
+  const values = Array.isArray(state.deal[item.key]) ? state.deal[item.key] : [];
+  const itemsHtml = item.items.map((label, idx) => {
+    const checked = values.indexOf(label) !== -1;
+    return '<label class="check-item"><input type="checkbox" data-scope="checklist" data-key="' + item.key + '" data-idx="' + idx + '"' + (checked ? " checked" : "") + '> ' + escapeHtml(label) + '</label>';
+  }).join("");
+  const noteHtml = item.note ? ('<p class="field-note">' + escapeHtml(item.note) + '</p>') : "";
+  return '<div class="checklist-block" id="fr_' + item.key + '">' +
+    '<div class="checklist-label" role="heading" aria-level="3">' + escapeHtml(item.label) + '</div>' +
+    noteHtml +
+    '<div class="check-grid">' + itemsHtml + '</div>' +
+    '</div>';
 }
 
 function renderRowsSection(table) {
   const defs = SCHEMA.row_fields[table];
   const rows = state.rows[table] || [];
   const tableLabel = TABLE_LABELS[table] || table;
+  const maxRows = MAX_ROWS_BY_TABLE[table];
+  const atMax = !!maxRows && rows.length >= maxRows;
   const theadHtml = '<tr>' + defs.map(d => '<th>' + escapeHtml(d.label) + (d.unit ? (' <span class="unit-th">(' + escapeHtml(d.unit) + ')</span>') : '') + '</th>').join("") +
     '<th class="col-action"></th></tr>';
   const bodyHtml = rows.map((row, rowIdx) => {
@@ -2116,19 +5891,24 @@ function renderRowsSection(table) {
     }) + '</td>').join("");
     return '<tr>' + cells + '<td class="col-action"><button type="button" class="btn btn-ghost btn-sm" data-action="remove-row" data-table="' + table + '" data-uid="' + row._uid + '">この行を消す</button></td></tr>';
   }).join("");
+  const addDisabled = atMax ? " disabled" : "";
+  const noteHtml = TABLE_NOTE_BY_TABLE[table] ? ('<p class="field-note">' + escapeHtml(TABLE_NOTE_BY_TABLE[table]) + '</p>') : "";
   return '<div class="rows-block" id="rowsblock-' + table + '">' +
     '<div class="rows-wrap"><table class="rows-table"><thead>' + theadHtml + '</thead><tbody>' + bodyHtml + '</tbody></table></div>' +
-    '<button type="button" class="btn btn-add" data-action="add-row" data-table="' + table + '">＋ 行を足す</button>' +
+    '<button type="button" class="btn btn-add" data-action="add-row" data-table="' + table + '"' + addDisabled + '>＋ 行を足す</button>' +
+    noteHtml +
     '</div>';
 }
 
-function renderFixedRowsSection() {
-  const defs = SCHEMA.row_fields[FIXED_TABLE];
-  const theadHtml = '<tr><th>制限種別</th>' + defs.map(d => '<th>' + escapeHtml(d.label) + (d.unit ? (' <span class="unit-th">(' + escapeHtml(d.unit) + ')</span>') : '') + '</th>').join("") + '</tr>';
-  const bodyHtml = state.fixed.map(row => {
+function renderFixedRowsSection(table) {
+  const defs = SCHEMA.row_fields[table];
+  const headerLabel = FIXED_HEADER_LABEL[table] || "種別";
+  const theadHtml = '<tr><th>' + escapeHtml(headerLabel) + '</th>' + defs.map(d => '<th>' + escapeHtml(d.label) + (d.unit ? (' <span class="unit-th">(' + escapeHtml(d.unit) + ')</span>') : '') + '</th>').join("") + '</tr>';
+  const rows = state.fixed[table] || [];
+  const bodyHtml = rows.map(row => {
     const cells = '<td class="fixed-type-cell">' + escapeHtml(row.restriction_type) + '</td>' +
       defs.map(d => '<td>' + renderInputForType(d, row[d.key], {
-        scope: "fixed", uid: row._uid, key: d.key,
+        scope: "fixed", table: table, uid: row._uid, key: d.key,
         ariaLabel: row.restriction_type + " " + d.label
       }) + '</td>').join("");
     return '<tr>' + cells + '</tr>';
@@ -2143,7 +5923,7 @@ function isTextareaOnlyRun(run) {
 
 function renderRunItem(item, textareaOnlyRun) {
   if (item.kind === "rows") return renderRowsSection(item.table);
-  if (item.kind === "fixed_rows") return renderFixedRowsSection();
+  if (item.kind === "fixed_rows") return renderFixedRowsSection(item.table);
   if (item.type === "textarea") return renderFieldRow(item, textareaOnlyRun ? "wide" : "span2");
   return renderFieldRow(item, null);
 }
@@ -2155,21 +5935,84 @@ function renderRunGrid(run, allowWide) {
   return '<div class="run-grid">' + run.map(it => renderRunItem(it, textareaOnlyRun)).join("") + '</div>';
 }
 
+/** checklist はグループ行(左見出し＋右グリッド)に入れず全幅ブロックとして割り込ませるため、
+    runをchecklistの境目で分割してから、それぞれを個別に描画する。 */
+function splitRunAtChecklists(run) {
+  const segments = [];
+  let buf = [];
+  run.forEach(it => {
+    if (it.kind === "checklist") {
+      if (buf.length) { segments.push({ type: "items", items: buf }); buf = []; }
+      segments.push({ type: "checklist", item: it });
+    } else {
+      buf.push(it);
+    }
+  });
+  if (buf.length) segments.push({ type: "items", items: buf });
+  return segments;
+}
+
+/** 見出しを直接持たないrun（タブ先頭・level1直下など）。checklistが混在すれば全幅で割り込む。 */
+function renderTopLevelRun(run) {
+  return splitRunAtChecklists(run).map(seg =>
+    seg.type === "checklist" ? renderChecklistBlock(seg.item) : renderRunGrid(seg.items)
+  ).join("");
+}
+
 function renderGroupRow(headingItem, run) {
   const lvlCls = headingItem.level === 2 ? " group-label-2" : (headingItem.level === 3 ? " group-label-3" : "");
-  return '<div class="group-row"><div class="group-label' + lvlCls + '" role="heading" aria-level="' + headingItem.level + '">' + escapeHtml(headingItem.text) + '</div>' + renderRunGrid(run, false) + '</div>';
+  const segments = splitRunAtChecklists(run);
+  let html = "";
+  let headingShown = false;
+  // runの先頭がchecklistの場合、見出しを単独の全幅見出しとして先に出す
+  // （そうしないと見出しがchecklistの後ろに回ってしまうため）。
+  if (segments.length && segments[0].type === "checklist") {
+    html += renderHeading(headingItem);
+    headingShown = true;
+  }
+  html += segments.map(seg => {
+    if (seg.type === "checklist") return renderChecklistBlock(seg.item);
+    if (!headingShown) {
+      headingShown = true;
+      return '<div class="group-row"><div class="group-label' + lvlCls + '" role="heading" aria-level="' + headingItem.level + '">' + escapeHtml(headingItem.text) + '</div>' + renderRunGrid(seg.items, false) + '</div>';
+    }
+    // 見出しは最初のセグメントで既に出したので、2つ目以降は左見出し列を空にする。
+    return '<div class="group-row"><div class="group-label-spacer" aria-hidden="true"></div>' + renderRunGrid(seg.items, false) + '</div>';
+  }).join("");
+  return html;
+}
+
+/** 重要事項説明書タブ専用: level1見出しの先頭記号をボタンにした章ジャンプバー。 */
+function buildJumpBar(entries) {
+  if (!entries.length) return "";
+  const btns = entries.map(e =>
+    '<button type="button" class="jump-btn" data-action="jump-to" data-target="' + e.id + '">' + escapeHtml(e.badge) + '</button>'
+  ).join("");
+  return '<nav class="jump-bar" aria-label="章ジャンプ">' + btns + '</nav>';
 }
 
 function renderTabPanel(tabKey) {
   const items = FIELDS_BY_TAB[tabKey] || [];
   let html = "";
   let i = 0;
+  const jumpEntries = [];
+  let h1Counter = 0;
   while (i < items.length) {
     const item = items[i];
     if (item.kind === "heading") {
-      if (item.level === 1) { html += renderHeading(item); i++; continue; }
+      if (item.level === 1) {
+        let idAttr = "";
+        if (tabKey === "juusetsu") {
+          const hid = "jh-" + (h1Counter++);
+          idAttr = ' id="' + hid + '"';
+          jumpEntries.push({ id: hid, badge: splitHeadingBadge(item.text).badge });
+        }
+        html += renderHeading(item, idAttr);
+        i++; continue;
+      }
       // level2/level3: 直下に項目(見出し以外)を持たなければ「細い全幅見出し」のまま。
-      // 持つ場合は「左に見出しラベル・右に項目グリッド」の1グループ行にする。
+      // 持つ場合は「左に見出しラベル・右に項目グリッド」の1グループ行にする
+      // （ただしchecklistが混ざっていればそこだけ全幅ブロックへ割り込む＝renderGroupRow内で処理）。
       const nextItem = items[i + 1];
       const hasContent = !!nextItem && nextItem.kind !== "heading";
       if (!hasContent) { html += renderHeading(item); i++; continue; }
@@ -2180,14 +6023,15 @@ function renderTabPanel(tabKey) {
       i = j;
       continue;
     }
-    // 見出しを直接持たない項目の並び（タブ先頭 or level1直下）は、そのまま項目グリッドのみ。
+    // 見出しを直接持たない項目の並び（タブ先頭 or level1直下）は、そのまま項目グリッド(＋checklist全幅)のみ。
     const run = [];
     let j = i;
     while (j < items.length && items[j].kind !== "heading") { run.push(items[j]); j++; }
-    html += renderRunGrid(run);
+    html += renderTopLevelRun(run);
     i = j;
   }
-  return '<div class="tab-panel" id="tabpanel-' + tabKey + '" data-tab="' + tabKey + '">' + html + '</div>';
+  const jumpBarHtml = (tabKey === "juusetsu") ? buildJumpBar(jumpEntries) : "";
+  return '<div class="tab-panel" id="tabpanel-' + tabKey + '" data-tab="' + tabKey + '">' + jumpBarHtml + html + '</div>';
 }
 
 function buildEditHtml() {
@@ -2215,6 +6059,7 @@ function showEditView() {
   const app = document.getElementById("app");
   app.innerHTML = buildEditHtml();
   applyActiveTab();
+  applyAllShowifs();
   document.querySelectorAll("#app textarea").forEach(autosize);
   window.scrollTo(0, 0);
 }
@@ -2224,13 +6069,24 @@ function replaceRowsBlock(table) {
   if (el) el.outerHTML = renderRowsSection(table);
 }
 
+/** 重要事項説明書タブの章ジャンプ: 対象見出しへスクロールし、sticky なタブバーの
+    高さぶんだけ戻して見出しが隠れないようにする。 */
+function scrollToHeading(targetId) {
+  const el = document.getElementById(targetId);
+  if (!el) return;
+  el.scrollIntoView({ block: "start" });
+  const bar = document.querySelector(".tabbar");
+  const offset = (bar ? bar.getBoundingClientRect().height : 0) + 10;
+  window.scrollBy(0, -offset);
+}
+
 /* =========================================================================
  * フィールド入力の反映
  * ========================================================================= */
 function resolveTarget(scope, table, uid) {
   if (scope === "deal") return state.deal;
   if (scope === "row") return (state.rows[table] || []).find(r => String(r._uid) === String(uid));
-  if (scope === "fixed") return state.fixed.find(r => String(r._uid) === String(uid));
+  if (scope === "fixed") return (state.fixed[table] || []).find(r => String(r._uid) === String(uid));
   return null;
 }
 
@@ -2255,9 +6111,34 @@ function parseValueForType(type, raw) {
   }
 }
 
+/** チェックリスト: 保存形式は「チェック済みラベル文字列の配列」。未チェックは配列に入れない。 */
+function handleChecklistInput(t) {
+  const key = t.dataset.key;
+  const idx = Number(t.dataset.idx);
+  const def = CHECKLIST_DEFS[key];
+  if (!def) return;
+  const label = def.items[idx];
+  let arr = Array.isArray(state.deal[key]) ? state.deal[key].slice() : [];
+  const has = arr.indexOf(label) !== -1;
+  if (t.checked && !has) arr.push(label);
+  else if (!t.checked && has) arr = arr.filter(x => x !== label);
+  state.deal[key] = arr;
+  state.dirty = true;
+}
+
+function refreshComputedDisplays() {
+  COMPUTED_DEFS.forEach(def => {
+    const el = document.getElementById("f_" + def.key);
+    if (!el) return;
+    const v = state.deal[def.key];
+    el.value = (v === null || v === undefined) ? "" : formatMoney(v);
+  });
+}
+
 function handleFieldInput(t) {
   if (t.readOnly) return;
   const scope = t.dataset.scope;
+  if (scope === "checklist") { handleChecklistInput(t); return; }
   const key = t.dataset.key;
   const type = t.dataset.type;
   const raw = (type === "checkbox") ? t.checked : t.value;
@@ -2266,10 +6147,10 @@ function handleFieldInput(t) {
   if (!target) return;
   target[key] = parsed;
   state.dirty = true;
-  if (scope === "deal" && (key === "body_price" || key === "tax_amount")) {
-    recomputePrice(state.deal);
-    const priceEl = document.getElementById("f_price");
-    if (priceEl) priceEl.value = (state.deal.price === null) ? "" : formatMoney(state.deal.price);
+  if (scope === "deal") {
+    recomputeAllComputed(state.deal);
+    refreshComputedDisplays();
+    applyShowifCascade(key);
   }
 }
 
@@ -2292,7 +6173,7 @@ function onMoneyBlur(el) {
 function performSave() {
   const isNew = (state.deal.id === null || state.deal.id === undefined);
   const now = new Date().toISOString();
-  recomputePrice(state.deal);
+  recomputeAllComputed(state.deal);
   const dealToSave = { ...state.deal };
   delete dealToSave.id;
   dealToSave.updated_at = now;
@@ -2337,21 +6218,23 @@ function performSave() {
       };
     });
 
-    const fstore = tx.objectStore(FIXED_TABLE);
-    const fidx = fstore.index("deal_id");
-    const fcReq = fidx.openCursor(IDBKeyRange.only(dealId));
-    fcReq.onsuccess = (ev) => {
-      const cursor = ev.target.result;
-      if (cursor) { cursor.delete(); cursor.continue(); }
-      else {
-        state.fixed.forEach(row => {
-          const toSave = { ...row };
-          delete toSave._uid; delete toSave.id;
-          toSave.deal_id = dealId;
-          fstore.add(toSave);
-        });
-      }
-    };
+    FIXED_TABLES.forEach(table => {
+      const fstore = tx.objectStore(table);
+      const fidx = fstore.index("deal_id");
+      const fcReq = fidx.openCursor(IDBKeyRange.only(dealId));
+      fcReq.onsuccess = (ev) => {
+        const cursor = ev.target.result;
+        if (cursor) { cursor.delete(); cursor.continue(); }
+        else {
+          state.fixed[table].forEach(row => {
+            const toSave = { ...row };
+            delete toSave._uid; delete toSave.id;
+            toSave.deal_id = dealId;
+            fstore.add(toSave);
+          });
+        }
+      };
+    });
   };
 }
 
@@ -2360,7 +6243,7 @@ function actuallyDeleteDeal(id) {
   tx.oncomplete = () => { showToast("削除しました", "ok"); if (state.view === "list") renderList(); };
   tx.onerror = () => { showToast("削除に失敗しました", "error"); };
   tx.objectStore("deals").delete(id);
-  [...ROW_TABLES, FIXED_TABLE].forEach(table => {
+  [...ROW_TABLES, ...FIXED_TABLES].forEach(table => {
     const store = tx.objectStore(table);
     const idx = store.index("deal_id");
     const req = idx.openCursor(IDBKeyRange.only(id));
@@ -2423,9 +6306,9 @@ function openDiscardModal() {
  * バックアップ（書き出し・読み込み）
  * ========================================================================= */
 async function gatherBackupData() {
-  const data = { app: "fudosan_torihiki", schema_version: 1, exported_at: new Date().toISOString() };
+  const data = { app: "fudosan_torihiki", schema_version: SCHEMA.db.version, exported_at: new Date().toISOString() };
   data.deals = await idbGetAll("deals");
-  for (const t of [...ROW_TABLES, FIXED_TABLE]) data[t] = await idbGetAll(t);
+  for (const t of [...ROW_TABLES, ...FIXED_TABLES]) data[t] = await idbGetAll(t);
   return data;
 }
 
@@ -2534,13 +6417,16 @@ function handleImportJsonText(text) {
   });
 }
 
+/** rows系・fixed_rows系のいずれも「deal_idを新idへ付け替えて追加」で扱いは同じなので、
+    child テーブル一覧をまとめて処理する（v0.2.0はROW_TABLES/FIXED_TABLEを別々に処理していたが、
+    処理内容が同一なため統合した）。 */
 function importData(data) {
   return new Promise((resolve, reject) => {
     if (!data || !Array.isArray(data.deals)) { reject(new Error("deals がありません")); return; }
     const deals = data.deals;
+    const childTables = [...ROW_TABLES, ...FIXED_TABLES];
     const childArrays = {};
-    ROW_TABLES.forEach(t => { childArrays[t] = Array.isArray(data[t]) ? data[t] : []; });
-    childArrays[FIXED_TABLE] = Array.isArray(data[FIXED_TABLE]) ? data[FIXED_TABLE] : [];
+    childTables.forEach(t => { childArrays[t] = Array.isArray(data[t]) ? data[t] : []; });
 
     if (deals.length === 0) { reject(new Error("deals が0件です")); return; }
 
@@ -2561,7 +6447,7 @@ function importData(data) {
       req.onsuccess = () => {
         const newId = req.result;
         addedCount++;
-        ROW_TABLES.forEach(table => {
+        childTables.forEach(table => {
           const store = tx.objectStore(table);
           childArrays[table].forEach(r => {
             if (!r || r.deal_id !== originalId) return;
@@ -2570,14 +6456,6 @@ function importData(data) {
             c.deal_id = newId;
             store.add(c);
           });
-        });
-        const fstore = tx.objectStore(FIXED_TABLE);
-        childArrays[FIXED_TABLE].forEach(r => {
-          if (!r || r.deal_id !== originalId) return;
-          const c = { ...r };
-          delete c.id;
-          c.deal_id = newId;
-          fstore.add(c);
         });
       };
     });
@@ -2609,8 +6487,11 @@ document.addEventListener("click", (e) => {
     case "export-backup": performExport(); break;
     case "import-backup-open": openImportModal(); break;
     case "tab": switchTab(el.dataset.tab); break;
+    case "jump-to": scrollToHeading(el.dataset.target); break;
     case "add-row": {
       const table = el.dataset.table;
+      const max = MAX_ROWS_BY_TABLE[table];
+      if (max && state.rows[table].length >= max) break;
       state.rows[table].push(blankRow(table, state.rows[table].length + 1));
       state.dirty = true;
       replaceRowsBlock(table);
@@ -2695,8 +6576,12 @@ window.__app = {
   idbGetAll, idbGet, idbGetAllByIndex,
   newDeal, loadDeal, performSave, actuallyDeleteDeal,
   gatherBackupData, importData,
-  recomputePrice, formatMoney, formatDateTime,
+  recomputeAllComputed, evalComputedTokens, tokenizeFormula,
+  applyShowifCascade, applyAllShowifs, isShowifVisible,
+  formatMoney, formatDateTime,
   showListView, showEditView, switchTab, renderList,
+  ROW_TABLES, FIXED_TABLES, ALL_STORES, MAX_ROWS_BY_TABLE, TABLE_NOTE_BY_TABLE,
+  CHECKLIST_DEFS, COMPUTED_DEFS, SHOWIF_BY_DRIVER, DEAL_FIELD_DEFS, FIXED_ORDER_BY_TABLE,
 };
 </script>
 </body>
