@@ -1,14 +1,15 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<!-- 不動産取引システム v0.5.0 / docs/02_項目定義_schema_v0.5.json（FRK標準書式「一般仲介用・区分所有建物（敷地権型）」重要事項説明書 全25p 準拠）に基づく。承認③: 2026-09-08。
+<!-- 不動産取引システム v0.5.1 / docs/02_項目定義_schema_v0.5.json（FRK標準書式「一般仲介用・区分所有建物（敷地権型）」重要事項説明書 全25p 準拠）に基づく。承認③: 2026-09-08。
      v0.2.0からの引き継ぎ: 横展開レイアウト・一覧画面・保存/読込/削除カスケード/バックアップ・モーダル3種・aria対応・IndexedDBのみ・alert等不使用。
      v0.3.0で追加: SCHEMA差し替え（366 field / 15テーブル / チェックリスト3件107項目）、IndexedDB v2（既存ストア維持＋新規9ストア追加）、
      checklist描画、showif条件表示、note注記、computed複数対応（連鎖計算）、land_parcelsのmax_rows、重説タブの章ジャンプバー。
      v0.3.1で修正: 見出し二重描画・見出しとchecklistの順序逆転を解消、showifの推移的（再帰的）非表示判定、
      select/yesnoの範囲外の旧データ値を「（旧データ）」付きで表示、land_parcelsの上限注記を常時表示。
      v0.4.0: 重要事項調査報告書の依頼書（空欄）／控え（記入済み）出力を追加。データ構造の変更なし。承認: 2026-09-08。
-     v0.5.0: 重要事項説明書（FRK標準書式）25ページの書面出力を追加。buyer_name追加・area_district_checks 2項目追加。承認: 2026-09-09 -->
+     v0.5.0: 重要事項説明書（FRK標準書式）25ページの書面出力を追加。buyer_name追加・area_district_checks 2項目追加。承認: 2026-09-09
+     v0.5.1: r3修正（p19「売買代金の％相当額」を10%/20%とも■、共用部分規約2欄・階部分の描画を明示）。本番OK: 2026-09-09 -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>不動産取引システム</title>
@@ -343,7 +344,7 @@
 <header class="topbar">
   <div class="topbar-inner">
     <span class="brand-name">不動産取引システム</span>
-    <span class="brand-version num">v0.5.0</span>
+    <span class="brand-version num">v0.5.1</span>
   </div>
 </header>
 <main id="app"></main>
@@ -6775,6 +6776,10 @@ function jpChecked(slot, page) {
     const item = CHECKLIST_DEFS[b.checklist]?.items[b.item];
     return item !== undefined && (state.deal[b.checklist] || []).includes(item);
   }
+  if (slot.id === "p19-cb14") {
+    const value = String(state.deal.ii_penalty_type ?? "");
+    return value.startsWith("売買代金の") && /[%％]相当額$/.test(value);
+  }
   if (b.option !== undefined) return jpChoice(b) === b.option;
   if (b.table) {
     const option = jpTableOption(page, slot);
@@ -6947,6 +6952,10 @@ function buildJuusetsuHtml() {
         ' style="left:' + s.x + 'pt;top:' + s.y + 'pt;font-size:' + s.size + 'pt;' +
         (s.w ? 'display:inline-block;width:' + s.w + 'pt;' : '') + '">' + escapeHtml(s.text) + '</div>').join("");
       const values = page.slots.map(s => {
+        const literal = s.id === "p10-t27-0" ? state.deal.common_area_scope_bylaw :
+          s.id === "p10-t27-1" ? state.deal.common_share_bylaw :
+          s.id === "p3-t11" ? state.rows.unit_floor_areas?.[0]?.floor_part : undefined;
+        if (!jpEmpty(literal)) return jpTextHtml({ ...s, align:"left" }, String(literal));
         if (s.kind === "checkbox") return jpChecked(s, page) ? jpTextHtml(s, "■") : "";
         if (markers.has(s.id)) return jpTextHtml(s, "以下余白", layout.values.get(s.id));
         if (s.bind?.table && s.kind !== "strike" && s.bind.row >= jpTableLength(s.bind.table)) return "";
