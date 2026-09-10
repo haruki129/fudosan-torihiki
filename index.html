@@ -10,7 +10,8 @@
      v0.4.0: 重要事項調査報告書の依頼書（空欄）／控え（記入済み）出力を追加。データ構造の変更なし。承認: 2026-09-08。
      v0.5.0: 重要事項説明書（FRK標準書式）25ページの書面出力を追加。buyer_name追加・area_district_checks 2項目追加。承認: 2026-09-09
      v0.5.1: r3修正（p19「売買代金の％相当額」を10%/20%とも■、共用部分規約2欄・階部分の描画を明示）。本番OK: 2026-09-09
-     v0.6.0-r1: 売買契約書をFRK標準書式＜契.No.7＞の様式1:1再現に変更（keiyaku_geometry.json）。FRKロゴ・会社ロゴ・FRK文言を契約書・重説の両方から削除。承認: 2026-09-10 -->
+     v0.6.0-r1: 売買契約書をFRK標準書式＜契.No.7＞の様式1:1再現に変更（keiyaku_geometry.json）。FRKロゴ・会社ロゴ・FRK文言を契約書・重説の両方から削除。承認: 2026-09-10
+     v0.7.0: 新タブ「確認事項2」を追加し、契約書の印字元全項目を同一キーで二重描画（同一値）。schema・SCHEMAリテラル・geometry・印字結果は不変。承認: 2026-09-10 -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>不動産取引システム</title>
@@ -356,7 +357,7 @@
 <header class="topbar">
   <div class="topbar-inner">
     <span class="brand-name">不動産取引システム</span>
-    <span class="brand-version num">v0.6.0</span>
+    <span class="brand-version num">v0.7.0</span>
   </div>
 </header>
 <main id="app"></main>
@@ -5609,10 +5610,6 @@ SCHEMA.tables.forEach(t => {
 // 内容に即した表現を1テーブルずつ割り当てる。他に固定行テーブルが増えた場合は「種別」を既定とする）。
 const FIXED_HEADER_LABEL = { exclusive_restrictions: "制限種別", exclusive_use_rights: "対象" };
 
-const FIELDS_BY_TAB = {};
-SCHEMA.tabs.forEach(t => { FIELDS_BY_TAB[t.key] = []; });
-SCHEMA.layout.forEach(item => { FIELDS_BY_TAB[item.tab].push(item); });
-
 const DEAL_FIELD_DEFS = {};
 SCHEMA.layout.forEach(item => {
   if (item.kind === "field" && item.table === "deals") DEAL_FIELD_DEFS[item.key] = item;
@@ -5622,6 +5619,69 @@ const CHECKLIST_DEFS = {};
 SCHEMA.layout.forEach(item => {
   if (item.kind === "checklist") CHECKLIST_DEFS[item.key] = item;
 });
+
+const CONTRACT_ALL_TAB = "contract_all";
+const TABS = SCHEMA.tabs.slice(0, 2)
+  .concat([{ key: CONTRACT_ALL_TAB, label: "確認事項2" }])
+  .concat(SCHEMA.tabs.slice(2));
+
+const FIELDS_BY_TAB = {};
+TABS.forEach(t => { FIELDS_BY_TAB[t.key] = []; });
+SCHEMA.layout.forEach(item => { FIELDS_BY_TAB[item.tab].push(item); });
+
+const CONTRACT_PRINT_GATE_KEYS = ["financial_institution", "loan_amount", "loan_approval_date", "cancellation_deadline"];
+const CONTRACT_LOAN_GATE_KEYS = CONTRACT_PRINT_GATE_KEYS.slice(0, 3);
+const MIRROR_ITEMS = (() => {
+  const keys = new Set(), tables = new Set();
+  const addKey = key => { if (DEAL_FIELD_DEFS[key]) keys.add(key); };
+  const addFormula = formula => tokenizeFormula(formula).filter(isVarToken).forEach(addKey);
+  KEIYAKU_GEOMETRY.pages.forEach(page => page.slots.forEach(slot => {
+    const bind = slot.bind;
+    if (!bind) return;
+    if (bind.key) addKey(bind.key);
+    if (bind.compose) bind.compose.forEach(addKey);
+    if (bind.computed) addFormula(bind.computed);
+    if (bind.formula) addFormula(bind.formula);
+    if (bind.table && SCHEMA.row_fields[bind.table]) tables.add(bind.table);
+  }));
+  keys.forEach(key => {
+    const def = DEAL_FIELD_DEFS[key];
+    if (def.showif) addKey(def.showif.key);
+  });
+  keys.forEach(key => {
+    const def = DEAL_FIELD_DEFS[key];
+    if (def.computed) addFormula(def.computed);
+  });
+  CONTRACT_PRINT_GATE_KEYS.forEach(addKey);
+
+  const items = [];
+  TABS.forEach(tab => {
+    const headings = ["", "", ""];
+    let sourceShown = false, lastHeading = "";
+    FIELDS_BY_TAB[tab.key].forEach(item => {
+      if (item.kind === "heading") {
+        headings[item.level - 1] = item.text;
+        headings.fill("", item.level);
+        return;
+      }
+      if (!(item.kind === "field" && keys.has(item.key)) &&
+          !(item.kind === "rows" && tables.has(item.table))) return;
+      if (!sourceShown) {
+        items.push({ kind:"heading", level:2, text:tab.label, tab:CONTRACT_ALL_TAB });
+        sourceShown = true;
+      }
+      const heading = headings.filter(Boolean).join("／");
+      if (heading && heading !== lastHeading) {
+        items.push({ kind:"heading", level:3, text:heading, tab:CONTRACT_ALL_TAB });
+      }
+      lastHeading = heading;
+      items.push(item);
+    });
+  });
+  return items;
+})();
+let RENDER_INST = "";   // "" = 通常描画 / "__c" = 確認事項2 タブの複製描画
+
 
 /* ---- computed: 「a + b」「a * b / c」「a * b / 100」形式のみを想定した
    簡易な左から右への式評価器（Function/evalは使わない）。 ---- */
@@ -5698,8 +5758,8 @@ function isShowifVisible(def, _visited) {
 function applyShowifForKeyDom(key) {
   const def = DEAL_FIELD_DEFS[key];
   if (!def || !def.showif) return;
-  const row = document.getElementById("fr_" + key);
-  if (row) row.hidden = !isShowifVisible(def);
+  const hidden = !isShowifVisible(def);
+  document.querySelectorAll('[data-fieldrow="' + key + '"]').forEach(row => { row.hidden = hidden; });
 }
 /** driverKey の値が変わったときに呼ぶ。依存する項目を辿って再表示判定し、連鎖にも対応する。 */
 function applyShowifCascade(driverKey) {
@@ -5996,7 +6056,7 @@ function bindAttrs(bind) {
 
 function renderInputForType(def, value, bind) {
   const attrs = bindAttrs(bind) + ' data-type="' + def.type + '"';
-  const idAttr = (bind.scope === "deal") ? (' id="f_' + def.key + '"') : "";
+  const idAttr = (bind.scope === "deal") ? (' id="f_' + def.key + RENDER_INST + '"') : "";
   switch (def.type) {
     case "text":
       return '<input type="text" class="input"' + idAttr + attrs + ' value="' + escapeHtml(value ?? "") + '">';
@@ -6072,7 +6132,7 @@ function renderFieldRow(def, spanMode) {
   else if (spanMode === "span2") cls += " field-row-span2";
   let hiddenAttr = "";
   if (def.showif && !isShowifVisible(def)) hiddenAttr = " hidden";
-  return '<div class="' + cls + '" id="fr_' + def.key + '"' + hiddenAttr + '><label class="field-label" for="f_' + def.key + '">' + escapeHtml(def.label) + '</label>' +
+  return '<div class="' + cls + '" id="fr_' + def.key + RENDER_INST + '" data-fieldrow="' + def.key + '"' + hiddenAttr + '><label class="field-label" for="f_' + def.key + RENDER_INST + '">' + escapeHtml(def.label) + '</label>' +
     '<div class="field-input">' + inputHtml + unitHtml + '</div>' + noteHtml + '</div>';
 }
 
@@ -6109,7 +6169,7 @@ function renderRowsSection(table) {
   }).join("");
   const addDisabled = atMax ? " disabled" : "";
   const noteHtml = TABLE_NOTE_BY_TABLE[table] ? ('<p class="field-note">' + escapeHtml(TABLE_NOTE_BY_TABLE[table]) + '</p>') : "";
-  return '<div class="rows-block" id="rowsblock-' + table + '">' +
+  return '<div class="rows-block" id="rowsblock-' + table + RENDER_INST + '" data-rowsblock="' + table + '" data-rowsinst="' + RENDER_INST + '">' +
     '<div class="rows-wrap"><table class="rows-table"><thead>' + theadHtml + '</thead><tbody>' + bodyHtml + '</tbody></table></div>' +
     '<button type="button" class="btn btn-add" data-action="add-row" data-table="' + table + '"' + addDisabled + '>＋ 行を足す</button>' +
     noteHtml +
@@ -6207,18 +6267,16 @@ function buildJumpBar(entries) {
   return '<nav class="jump-bar" aria-label="章ジャンプ">' + btns + '</nav>';
 }
 
-function renderTabPanel(tabKey) {
-  const items = FIELDS_BY_TAB[tabKey] || [];
+function renderItems(items, jumpEntries) {
   let html = "";
   let i = 0;
-  const jumpEntries = [];
   let h1Counter = 0;
   while (i < items.length) {
     const item = items[i];
     if (item.kind === "heading") {
       if (item.level === 1) {
         let idAttr = "";
-        if (tabKey === "juusetsu") {
+        if (jumpEntries) {
           const hid = "jh-" + (h1Counter++);
           idAttr = ' id="' + hid + '"';
           jumpEntries.push({ id: hid, badge: splitHeadingBadge(item.text).badge });
@@ -6246,19 +6304,36 @@ function renderTabPanel(tabKey) {
     html += renderTopLevelRun(run);
     i = j;
   }
+  return html;
+}
+
+function renderTabPanel(tabKey) {
+  const items = FIELDS_BY_TAB[tabKey] || [];
+  const jumpEntries = [];
+  let html;
+  if (tabKey === CONTRACT_ALL_TAB) {
+    try {
+      RENDER_INST = "__c";
+      html = renderItems(MIRROR_ITEMS, null);
+    } finally {
+      RENDER_INST = "";
+    }
+  } else {
+    html = renderItems(items, tabKey === "juusetsu" ? jumpEntries : null);
+  }
   const jumpBarHtml = (tabKey === "juusetsu") ? buildJumpBar(jumpEntries) : "";
   const reportActionsHtml = (tabKey === "juusetsu") ?
     '<div class="report-actions">' +
     '<button type="button" class="btn" data-action="report-blank">調査依頼書を出す（空欄）</button>' +
     '<button type="button" class="btn" data-action="report-filled">調査報告書の控えを出す（記入済み）</button>' +
     '<button type="button" class="btn btn-primary" data-action="report-juusetsu">重要事項説明書を印刷する</button>' +
-    '</div>' : (tabKey === "contract") ? '<div class="report-actions"><button type="button" class="btn btn-primary" data-action="report-contract">売買契約書を印刷する</button></div><p class="muted">物件は「登記情報」、売主・買主・業者は「重要事項説明書」、融資は「確認内容」（複数融資は「重要事項説明書」の金銭の貸借のあっせん）、引渡日は「決済」、特約は「特約事項」の入力を使用します。約款で参照する物件状況等報告書・設備表・修補範囲等の別表は別途用意してください。</p>' : "";
+    '</div>' : (tabKey === "contract") ? '<div class="report-actions"><button type="button" class="btn btn-primary" data-action="report-contract">売買契約書を印刷する</button></div><p class="muted">物件は「登記情報」、売主・買主・業者は「重要事項説明書」、融資は「確認内容」（複数融資は「重要事項説明書」の金銭の貸借のあっせん）、引渡日は「決済」、特約は「特約事項」の入力を使用します。約款で参照する物件状況等報告書・設備表・修補範囲等の別表は別途用意してください。</p>' : (tabKey === CONTRACT_ALL_TAB) ? '<div class="report-actions"><button type="button" class="btn btn-primary" data-action="report-contract">売買契約書を印刷する</button></div><p class="muted">このタブだけで売買契約書の入力と印刷が終わります。ここに並ぶ項目は、売買契約書・確認内容・決済・登記情報・特約事項・重要事項説明書の各タブと同じ値です。どちらで入力しても保存される値は1つです。約款で参照する物件状況等報告書・設備表・修補範囲等の別表は別途用意してください。</p>' : "";
   return '<div class="tab-panel" id="tabpanel-' + tabKey + '" data-tab="' + tabKey + '">' + jumpBarHtml + reportActionsHtml + html + '</div>';
 }
 
 function buildEditHtml() {
-  const tabsHtml = SCHEMA.tabs.map(t => '<button type="button" class="tab-btn" data-action="tab" data-tab="' + t.key + '">' + escapeHtml(t.label) + '</button>').join("");
-  const panelsHtml = SCHEMA.tabs.map(t => renderTabPanel(t.key)).join("");
+  const tabsHtml = TABS.map(t => '<button type="button" class="tab-btn" data-action="tab" data-tab="' + t.key + '">' + escapeHtml(t.label) + '</button>').join("");
+  const panelsHtml = TABS.map(t => renderTabPanel(t.key)).join("");
   return '<div class="tabbar"><div class="tabbar-inner">' + tabsHtml + '</div></div>' +
     '<div class="tabpanels">' + panelsHtml + '</div>' +
     '<div class="actionbar"><div class="actionbar-inner">' +
@@ -6287,8 +6362,15 @@ function showEditView() {
 }
 
 function replaceRowsBlock(table) {
-  const el = document.getElementById("rowsblock-" + table);
-  if (el) el.outerHTML = renderRowsSection(table);
+  const elements = Array.from(document.querySelectorAll('[data-rowsblock="' + table + '"]'));
+  elements.forEach(el => {
+    try {
+      RENDER_INST = el.dataset.rowsinst || "";
+      el.outerHTML = renderRowsSection(table);
+    } finally {
+      RENDER_INST = "";
+    }
+  });
 }
 
 /** 重要事項説明書タブの章ジャンプ: 対象見出しへスクロールし、sticky なタブバーの
@@ -6350,10 +6432,39 @@ function handleChecklistInput(t) {
 
 function refreshComputedDisplays() {
   COMPUTED_DEFS.forEach(def => {
-    const el = document.getElementById("f_" + def.key);
-    if (!el) return;
     const v = state.deal[def.key];
-    el.value = (v === null || v === undefined) ? "" : formatMoney(v);
+    document.querySelectorAll('[data-scope="deal"][data-key="' + def.key + '"]').forEach(el => {
+      el.value = (v === null || v === undefined) ? "" : formatMoney(v);
+    });
+  });
+}
+
+function syncFieldMirrors(t) {
+  const scope = t.dataset.scope, key = t.dataset.key;
+  if (scope === "checklist") return;
+  const target = resolveTarget(scope, t.dataset.table, t.dataset.uid);
+  if (!target) return;
+  const selector = scope === "deal" ? '[data-scope="deal"][data-key="' + key + '"]' :
+    '[data-scope="' + scope + '"][data-table="' + t.dataset.table + '"][data-uid="' + t.dataset.uid + '"][data-key="' + key + '"]';
+  const v = target[key];
+  document.querySelectorAll(selector).forEach(el => {
+    if (el === t) return;
+    if (t.dataset.type === "checkbox") el.checked = !!v;
+    else if (t.dataset.type === "money") el.value = (v === null || v === undefined) ? "" : formatMoney(v);
+    else el.value = (v === null || v === undefined) ? "" : String(v);
+    if (el.tagName === "TEXTAREA") {
+      autosize(el);
+      const panel = el.closest(".tab-panel");
+      if (panel && !panel.classList.contains("active") && !el._mirrorAutosizeObserver) {
+        el._mirrorAutosizeObserver = new MutationObserver(() => {
+          if (!panel.classList.contains("active")) return;
+          autosize(el);
+          el._mirrorAutosizeObserver.disconnect();
+          delete el._mirrorAutosizeObserver;
+        });
+        el._mirrorAutosizeObserver.observe(panel, { attributes:true, attributeFilter:["class"] });
+      }
+    }
   });
 }
 
@@ -6369,6 +6480,7 @@ function handleFieldInput(t) {
   if (!target) return;
   target[key] = parsed;
   state.dirty = true;
+  syncFieldMirrors(t);
   if (scope === "deal") {
     recomputeAllComputed(state.deal);
     refreshComputedDisplays();
@@ -7119,7 +7231,7 @@ function cpLoanRows() {
 function cpInputWarning() {
   const d = state.deal, loans = cpLoanRows();
   if (d.loan_use !== "あり") return "";
-  if (loans.length && ['financial_institution','loan_amount','loan_approval_date'].some(k => !jpEmpty(d[k])) && !loans.some(r =>
+  if (loans.length && CONTRACT_LOAN_GATE_KEYS.some(k => !jpEmpty(d[k])) && !loans.some(r =>
     (jpEmpty(d.financial_institution) || String(r.institution || '') === String(d.financial_institution)) &&
     (jpEmpty(d.loan_amount) || (!jpEmpty(r.amount) && Number(r.amount) * 10000 === Number(d.loan_amount))) &&
     (jpEmpty(d.loan_approval_date) || r.approval_deadline === d.loan_approval_date))) {
@@ -7195,7 +7307,7 @@ function cpPaginateSpecial(view) {
 async function printContract(allowOverflow = false) {
   const warning = cpInputWarning();
   if (warning) {
-    openConfirmModal({ title:"融資条件を確認してください", message:warning, cancelLabel:"閉じる", confirmLabel:"確認内容へ", onConfirm:() => switchTab("confirm") });
+    openConfirmModal({ title:"融資条件を確認してください", message:warning, cancelLabel:"閉じる", confirmLabel:"確認内容へ", onConfirm:() => switchTab(state.activeTab === CONTRACT_ALL_TAB ? CONTRACT_ALL_TAB : "confirm") });
     return;
   }
   const warnings = cpOverflowWarnings();
@@ -7445,6 +7557,7 @@ window.addEventListener("DOMContentLoaded", async () => {
  * テスト用フック（検証担当が使用）
  * ========================================================================= */
 window.__app = {
+  MIRROR_ITEMS, TABS, CONTRACT_ALL_TAB,
   schema: SCHEMA,
   getDb: () => db,
   state,
