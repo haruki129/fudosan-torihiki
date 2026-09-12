@@ -327,7 +327,7 @@
   }
 
   /* ---- 重要事項説明書（FRK標準書式） v0.5.0 ---- */
-  .jp-page{ width:595pt; height:842pt; position:relative; overflow:hidden; background:#fff; color:#000;
+  .jp-page{ width:595pt; height:825pt; position:relative; overflow:hidden; background:#fff; color:#000;
     page-break-after:always; break-inside:avoid;
     font-family:"MS Gothic","BIZ UDPGothic","Hiragino Kaku Gothic ProN",sans-serif; }
   .jp-page:last-child{ page-break-after:auto; }
@@ -341,7 +341,7 @@
     body.printing-juusetsu{ margin:0; padding:0; background:#fff; }
   }
   /* ---- 売買契約書 v0.6.0 ---- */
-  .cp-page{ width:1190pt; height:842pt; position:relative; overflow:hidden; padding:0;
+  .cp-page{ width:1190pt; height:825pt; position:relative; overflow:hidden; padding:0;
     background:#fff; color:#000; page-break-after:always;
     font-family:"MS Gothic","BIZ UDPGothic","Hiragino Kaku Gothic ProN",sans-serif; }
   .cp-page:last-child{ page-break-after:auto; }
@@ -357,7 +357,7 @@
 <header class="topbar">
   <div class="topbar-inner">
     <span class="brand-name">不動産取引システム</span>
-    <span class="brand-version num">v0.7.0</span>
+    <span class="brand-version num">v0.7.1</span>
   </div>
 </header>
 <main id="app"></main>
@@ -6956,16 +6956,25 @@ function buildReportHtml(mode) {
   return '<div class="report-doc">' + headerHtml + '<div class="report-body">' + bodyHtml + '</div>' + footerHtml + '</div>';
 }
 
+/** 印刷後の後片付け。OSの印刷ダイアログ経由だと afterprint が先に発火するため、
+ *  画面にフォーカスが戻るまで印刷用の紙面を残す（先に消すとシステム画面が刷られる）。 */
+let pendingPrintCleanup = null;
+function finishPrint(cleanup) {
+  if (pendingPrintCleanup) { window.removeEventListener("focus", pendingPrintCleanup); pendingPrintCleanup = null; }
+  if (document.hasFocus()) { cleanup(); return; }
+  pendingPrintCleanup = () => { pendingPrintCleanup = null; cleanup(); };
+  window.addEventListener("focus", pendingPrintCleanup, { once: true });
+}
 /** 印刷ビューを組み立てて印刷ダイアログを開く。ダイアログが閉じたら元に戻す。 */
 function openReport(mode) {
   const view = document.getElementById("report-view");
   view.innerHTML = buildReportHtml(mode);
   document.body.classList.add("printing");
-  window.onafterprint = () => {
+  window.onafterprint = () => finishPrint(() => {
     document.body.classList.remove("printing");
     view.innerHTML = "";
     window.onafterprint = null;
-  };
+  });
   window.print();
 }
 
@@ -7333,7 +7342,7 @@ async function printContract(allowOverflow = false) {
     view.innerHTML = buildContractHtml();
     document.head.appendChild(rule);
     document.body.classList.add("printing", "printing-contract");
-    window.onafterprint = cleanup;
+    window.onafterprint = () => finishPrint(cleanup);
     if (document.fonts) await document.fonts.ready;
     if (!cpPaginateSpecial(view)) { cleanup(); showToast("特約事項が長すぎます", "error"); return; }
     jpFitStatic(view);
@@ -7406,7 +7415,7 @@ async function jpPrint() {
     view.innerHTML = buildJuusetsuHtml();
     document.head.appendChild(rule);
     document.body.classList.add("printing", "printing-juusetsu");
-    window.onafterprint = cleanup;
+    window.onafterprint = () => finishPrint(cleanup);
     if (document.fonts) await document.fonts.ready;
     jpFitStatic(view);
     window.print();
