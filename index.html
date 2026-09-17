@@ -338,6 +338,8 @@
   @media print{
     .jp-print-guide{ display:none; }
     .jp-page{ print-color-adjust:exact; -webkit-print-color-adjust:exact; }
+    .jp-page{ width:100%; height:auto; }
+    .jp-page svg{ position:static; width:99%; height:auto; display:block; margin:0 auto; max-height:99.5vh; }
     body.printing-juusetsu{ margin:0; padding:0; background:#fff; }
   }
   /* ---- 売買契約書 v0.6.0 ---- */
@@ -357,7 +359,7 @@
 <header class="topbar">
   <div class="topbar-inner">
     <span class="brand-name">不動産取引システム</span>
-    <span class="brand-version num">v0.7.1</span>
+    <span class="brand-version num">v0.7.3</span>
   </div>
 </header>
 <main id="app"></main>
@@ -7214,8 +7216,20 @@ function jpTableMarkers(geo) {
   });
   return markers;
 }
-function jpTextHtml(slot, text, block) {
+function jpTextHtml(slot, text, block, textInSvg = false) {
   if (!text) return "";
+  if (textInSvg) {
+    const x = slot.align === "right" ? slot.x + slot.w : slot.x;
+    const y = slot.y + (block ? (block.lh - slot.size) / 2 : 0) + slot.size * 0.82;
+    const attrs = (slot.id ? ' data-jp-slot="' + slot.id + '"' : '') +
+      (slot.w ? ' data-jp-width="' + slot.w + '"' : '') +
+      ' x="' + x + '" y="' + y + '" font-size="' + slot.size + '"' +
+      (slot.align === "right" ? ' text-anchor="end"' : '') +
+      ' style="white-space:' + (block ? 'pre' : 'nowrap') + ';"';
+    const content = block ? String(text).split("\n").map((line, i) =>
+      '<tspan x="' + x + '" y="' + (y + i * block.lh) + '">' + escapeHtml(line) + '</tspan>').join("") : escapeHtml(text);
+    return '<text' + attrs + '>' + content + '</text>';
+  }
   let style = "left:" + slot.x + "pt;top:" + slot.y + "pt;font-size:" + slot.size + "pt;";
   if (block) style += "width:" + block.width + "pt;height:" + block.height + "pt;line-height:" + block.lh + "pt;white-space:pre-wrap;overflow:hidden;overflow-wrap:anywhere;";
   else if (slot.w) style += "width:" + slot.w + "pt;";
@@ -7353,6 +7367,7 @@ async function printContract(allowOverflow = false) {
 
 function buildGeometryPageHtml(geo, page, layout, markers, opts) {
   const [W, H] = geo.page_size_pt;
+  const textInSvg = opts.textInSvg === true;
   const hideStatic = opts.hideStatic || (() => false);
   const lines = page.lines.map(jpLineHtml).join("");
   const rects = page.rects.filter(r => r.role !== "logo_frk").map(r => '<rect x="' + r.x + '" y="' + r.y + '" width="' + r.w + '" height="' + r.h +
@@ -7360,38 +7375,61 @@ function buildGeometryPageHtml(geo, page, layout, markers, opts) {
   const curves = page.curves.filter(c => c.role !== "logo_frk").map(c => '<path d="' + c.pts.map((pt,i) => (i ? 'L' : 'M') + pt.join(' ')).join(' ') + (c.fill ? ' Z' : '') +
     '" fill="' + (c.fill ? '#000' : 'none') + '" stroke="' + (c.fill && c.role !== 'rule' ? 'none' : '#000') + '" stroke-width="' + c.lw + '"/>').join("");
   const strikes = page.strikes.filter(s => s.bind?.key ? jpChoice(s.bind) === s.bind.when : page.no === 1 && s.x1 > geo.page_size_pt[0] / 2).map(jpLineHtml).join("");
-  const fixed = page.static.filter(s => !hideStatic(s)).map(s => '<div class="jp-t"' + (s.w ? ' data-jp-width="' + s.w + '"' : '') +
+  const fixed = page.static.filter(s => !hideStatic(s)).map(s => textInSvg ? jpTextHtml(s, s.text, undefined, true) :
+    '<div class="jp-t"' + (s.w ? ' data-jp-width="' + s.w + '"' : '') +
     ' style="left:' + s.x + 'pt;top:' + s.y + 'pt;font-size:' + s.size + 'pt;' +
     (s.w ? 'display:inline-block;width:' + s.w + 'pt;' : '') + '">' + escapeHtml(s.text) + '</div>').join("");
-  const values = page.slots.map(s => opts.renderSlot(s, page, layout, markers)).join("");
+  const values = page.slots.map(s => opts.renderSlot(s, page, layout, markers, textInSvg)).join("");
   return '<section class="' + opts.pageClass + '" data-jp-page="' + page.no + '"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" aria-hidden="true">' +
-    lines + rects + curves + strikes + '</svg>' + fixed + values + '</section>';
+    lines + rects + curves + strikes + (textInSvg ? fixed + values + '</svg>' : '</svg>' + fixed + values) + '</section>';
 }
-function jpRenderSlot(s, page, layout, markers) {
+function jpRenderSlot(s, page, layout, markers, textInSvg = false) {
   const literal = s.id === "p10-t27-0" ? state.deal.common_area_scope_bylaw :
     s.id === "p10-t27-1" ? state.deal.common_share_bylaw :
     s.id === "p3-t11" ? state.rows.unit_floor_areas?.[0]?.floor_part : undefined;
-  if (!jpEmpty(literal)) return jpTextHtml({ ...s, align:"left" }, String(literal));
-  if (s.kind === "checkbox") return jpChecked(s, page) ? jpTextHtml(s, "■") : "";
-  if (markers.has(s.id)) return jpTextHtml(s, "以下余白", layout.values.get(s.id));
+  if (!jpEmpty(literal)) return jpTextHtml({ ...s, align:"left" }, String(literal), undefined, textInSvg);
+  if (s.kind === "checkbox") return jpChecked(s, page) ? jpTextHtml(s, "■", undefined, textInSvg) : "";
+  if (markers.has(s.id)) return jpTextHtml(s, "以下余白", layout.values.get(s.id), textInSvg);
   if (s.bind?.table && s.kind !== "strike" && s.bind.row >= jpTableLength(s.bind.table)) return "";
   if (jpIsMultiline(s)) {
     const block = layout.values.get(s.id);
-    return block ? jpTextHtml(s, block.text, block) : "";
+    return block ? jpTextHtml(s, block.text, block, textInSvg) : "";
   }
-  return jpTextHtml(s, jpFormat(s));
+  return jpTextHtml(s, jpFormat(s), undefined, textInSvg);
 }
 const FRK_TEXT_JUUSETSU = ["＜重.No.3＞", "一般社団法人不動産流通経営協会標準契約書式に対応した重要事項説明書式"];
 function buildJuusetsuHtml() {
   const layout = jpTextLayout(JUUSETSU_GEOMETRY), markers = jpTableMarkers(JUUSETSU_GEOMETRY);
   return '<div class="jp-print-guide">印刷設定: 背景のグラフィックを有効・余白なし・倍率100%</div>' +
     JUUSETSU_GEOMETRY.pages.map(page => buildGeometryPageHtml(JUUSETSU_GEOMETRY, page, layout, markers, {
-      pageClass:"jp-page", renderSlot:jpRenderSlot,
+      pageClass:"jp-page", renderSlot:jpRenderSlot, textInSvg:true,
       hideStatic:s => FRK_TEXT_JUUSETSU.some(t => s.text.includes(t)),
     })).join("");
 }
 function jpFitStatic(view) {
   view.querySelectorAll("[data-jp-width]").forEach(el => {
+    if (el.namespaceURI === "http://www.w3.org/2000/svg" && el.localName === "text") {
+      const target = Number(el.dataset.jpWidth);
+      if (el.hasAttribute("data-jp-slot")) {
+        if (el.getAttribute("text-anchor") === "end" && !el.querySelector("tspan") &&
+            el.getComputedTextLength() > target) {
+          el.setAttribute("x", Number(el.getAttribute("x")) - target);
+          el.removeAttribute("text-anchor");
+        }
+        return;
+      }
+      const spans = el.querySelectorAll("tspan");
+      (spans.length ? Array.from(spans) : [el]).forEach(text => {
+        text.removeAttribute("textLength");
+        text.removeAttribute("lengthAdjust");
+        const actual = text.getComputedTextLength();
+        if (actual > target * 1.01) {
+          text.setAttribute("textLength", target);
+          text.setAttribute("lengthAdjust", "spacingAndGlyphs");
+        }
+      });
+      return;
+    }
     const range = document.createRange();
     range.selectNodeContents(el);
     const actual = range.getBoundingClientRect().width;
