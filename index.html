@@ -359,7 +359,7 @@
 <header class="topbar">
   <div class="topbar-inner">
     <span class="brand-name">不動産取引システム</span>
-    <span class="brand-version num">v0.7.3</span>
+    <span class="brand-version num">v0.7.4</span>
   </div>
 </header>
 <main id="app"></main>
@@ -7007,9 +7007,18 @@ function jpChoice(bind) {
   if (jpDefinition(bind).type !== "yesno") return value;
   return value === "あり" ? "有" : value === "なし" ? "無" : value;
 }
+// 生成器が行・列を取り違えた p12 専用使用権 バルコニー行の4枠を、幾何データを変えずに読み替える。
+const JP_BIND_FIX = {
+  "p12-cb14": { row:0, col:"fee_exists" },
+  "p12-cb15": { row:0, col:"fee_exists" },
+  "p12-cb28": { row:0, col:"fee_attribution" },
+  "p12-cb29": { row:0, col:"fee_attribution" },
+};
+function jpBind(slot) {
+  const fix = JP_BIND_FIX[slot?.id];
+  return fix && slot.bind ? { ...slot.bind, ...fix } : slot?.bind;
+}
 function jpTableOption(page, slot) {
-  // 生成器で行・列の割当が重複した4枠は、正本の修正まで印字を保留する。
-  if (["p12-cb14", "p12-cb15", "p12-cb28", "p12-cb29"].includes(slot.id)) return undefined;
   const contains = (text, box) => Math.abs(text.y - box.y) < 1 && text.x <= box.x && box.x < text.x + text.w;
   const texts = page.static.filter(t => t.text.includes("□") && contains(t, slot));
   if (texts.length !== 1) return undefined;
@@ -7019,7 +7028,7 @@ function jpTableOption(page, slot) {
   const labels = text.text.split("□").slice(1);
   if (labels.length !== boxes.length || index < 0) return undefined;
   const label = labels[index].trim().replace(/^\d+[.．]\s*/, "");
-  const def = jpDefinition(slot.bind);
+  const def = jpDefinition(jpBind(slot));
   if (def.type === "yesno") return /^[有無]/.test(label) ? label[0] : undefined;
   const choices = (def.options || []).filter(option => label.startsWith(option));
   if (choices.length === 1) return choices[0];
@@ -7027,7 +7036,7 @@ function jpTableOption(page, slot) {
   return undefined;
 }
 function jpChecked(slot, page) {
-  const b = slot.bind;
+  const b = jpBind(slot);
   if (!b) return false;
   if (b.checklist) {
     const item = CHECKLIST_DEFS[b.checklist]?.items[b.item];
@@ -7044,6 +7053,44 @@ function jpChecked(slot, page) {
   }
   return jpDefinition(b).type === "checkbox" && jpValue(b) === true;
 }
+/* チェック欄は「■を座標に重ねる」のではなく、様式の文言の該当する□を■に置き換えて描く。
+   ブラウザの字送りはPDFの字送りと違うので、重ねると文字列の先頭以外の□は必ずずれるため。 */
+function jpBoxX(st, i) {
+  let adv = 0;
+  for (let k = 0; k < i; k++) adv += /[\u0000-\u007f\uff61-\uff9f]/.test(st.text[k]) ? st.size / 2 : st.size;
+  return st.x + adv;
+}
+/** このページのcheckedなチェック欄を、様式の文言の何文字目の□に割り当てるかを幾何から解く。 */
+function jpCheckMap(page) {
+  const byStatic = new Map(), bySlot = new Set();
+  page.slots.forEach(slot => {
+    if (slot.kind !== "checkbox" || !jpChecked(slot, page)) return;
+    const texts = page.static.filter(t => t.text.includes("□") &&
+      Math.abs(t.y - slot.y) < 2.5 && t.x - 1 <= slot.x && slot.x < t.x + t.w + 1);
+    if (!texts.length) return;
+    const st = texts.sort((a, b) => Math.abs(a.x - slot.x) - Math.abs(b.x - slot.x))[0];
+    let at = -1, best = Infinity;
+    for (let i = 0; i < st.text.length; i++) {
+      if (st.text[i] !== "□") continue;
+      const d = Math.abs(jpBoxX(st, i) - slot.x);
+      if (d < best) { best = d; at = i; }
+    }
+    if (at < 0) return;
+    if (!byStatic.has(st)) byStatic.set(st, new Map());
+    if (byStatic.get(st).has(at)) return;
+    byStatic.get(st).set(at, slot.id);
+    bySlot.add(slot.id);
+  });
+  return { byStatic, bySlot };
+}
+/** 置換後の文言と、どのチェック欄を入れたかの目印（data-jp-checked）。 */
+function jpCheckedStatic(st, hit) {
+  const chars = st.text.split("");
+  const ids = Array.from(hit.keys()).sort((a, b) => a - b);
+  ids.forEach(i => { chars[i] = "■"; });
+  return { ...st, text: chars.join(""), checked: ids.map(i => hit.get(i)).join(" ") };
+}
+let jpPageChecks = null; // buildGeometryPageHtml が組み立て中のページの置換表
 function jpDatePart(value, part) {
   const text = String(value);
   const match = text.match(/^(\d{4})[-/年](\d{1,2})(?:[-/月](\d{1,2}|末))?/);
@@ -7222,6 +7269,7 @@ function jpTextHtml(slot, text, block, textInSvg = false) {
     const x = slot.align === "right" ? slot.x + slot.w : slot.x;
     const y = slot.y + (block ? (block.lh - slot.size) / 2 : 0) + slot.size * 0.82;
     const attrs = (slot.id ? ' data-jp-slot="' + slot.id + '"' : '') +
+      (slot.checked ? ' data-jp-checked="' + slot.checked + '"' : '') +
       (slot.w ? ' data-jp-width="' + slot.w + '"' : '') +
       ' x="' + x + '" y="' + y + '" font-size="' + slot.size + '"' +
       (slot.align === "right" ? ' text-anchor="end"' : '') +
@@ -7270,7 +7318,7 @@ function cpRenderSlot(slot, page, layout, markers) {
   if (slot.id === "k1-x2" && state.deal.delivery_date_basis === "売買代金受領日") return "";
   if (slot.id === "k1-x3" && state.deal.penalty_type !== "直接入力") return "";
   if (state.deal.loan_use === "なし" && (b?.table === "loan_arrangements" || b?.key === "cancel_loan_deadline")) return "";
-  if (slot.kind === "checkbox") return jpChecked(slot, page) ? jpTextHtml(slot, "■") : "";
+  if (slot.kind === "checkbox") return jpChecked(slot, page) && !jpPageChecks?.bySlot.has(slot.id) ? jpTextHtml(slot, "■") : "";
   if (markers.has(slot.id)) return jpTextHtml(slot, "以下余白", layout.values.get(slot.id));
   if (b?.table && slot.kind !== "strike" && b.row >= jpTableLength(b.table) && !(b.row === 0 && jpFallbackActive(b))) return "";
   if (jpIsMultiline(slot)) {
@@ -7321,7 +7369,7 @@ function cpPaginateSpecial(view) {
         renderSlot:(s,p,l,m) => s.id === slot.id ? jpTextHtml(s, block.text, block) : cpRenderSlot(s,p,l,m),
       });
       html = html.replace('data-jp-page="' + page.no + '"', 'data-jp-page="' + page.no + '-' + (i + 1) + '"')
-        .replace(/ data-jp-slot="[^"]*"/g, "");
+        .replace(/ data-jp-(slot|checked)="[^"]*"/g, "");
       view.insertAdjacentHTML("beforeend", html);
     }
   }
@@ -7375,10 +7423,17 @@ function buildGeometryPageHtml(geo, page, layout, markers, opts) {
   const curves = page.curves.filter(c => c.role !== "logo_frk").map(c => '<path d="' + c.pts.map((pt,i) => (i ? 'L' : 'M') + pt.join(' ')).join(' ') + (c.fill ? ' Z' : '') +
     '" fill="' + (c.fill ? '#000' : 'none') + '" stroke="' + (c.fill && c.role !== 'rule' ? 'none' : '#000') + '" stroke-width="' + c.lw + '"/>').join("");
   const strikes = page.strikes.filter(s => s.bind?.key ? jpChoice(s.bind) === s.bind.when : page.no === 1 && s.x1 > geo.page_size_pt[0] / 2).map(jpLineHtml).join("");
-  const fixed = page.static.filter(s => !hideStatic(s)).map(s => textInSvg ? jpTextHtml(s, s.text, undefined, true) :
+  const checks = jpCheckMap(page);
+  jpPageChecks = checks;
+  const fixed = page.static.filter(s => !hideStatic(s)).map(orig => {
+    const hit = checks.byStatic.get(orig);
+    const s = hit ? jpCheckedStatic(orig, hit) : orig;
+    return textInSvg ? jpTextHtml(s, s.text, undefined, true) :
     '<div class="jp-t"' + (s.w ? ' data-jp-width="' + s.w + '"' : '') +
+    (s.checked ? ' data-jp-checked="' + s.checked + '"' : '') +
     ' style="left:' + s.x + 'pt;top:' + s.y + 'pt;font-size:' + s.size + 'pt;' +
-    (s.w ? 'display:inline-block;width:' + s.w + 'pt;' : '') + '">' + escapeHtml(s.text) + '</div>').join("");
+    (s.w ? 'display:inline-block;width:' + s.w + 'pt;' : '') + '">' + escapeHtml(s.text) + '</div>';
+  }).join("");
   const values = page.slots.map(s => opts.renderSlot(s, page, layout, markers, textInSvg)).join("");
   return '<section class="' + opts.pageClass + '" data-jp-page="' + page.no + '"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" aria-hidden="true">' +
     lines + rects + curves + strikes + (textInSvg ? fixed + values + '</svg>' : '</svg>' + fixed + values) + '</section>';
@@ -7388,7 +7443,7 @@ function jpRenderSlot(s, page, layout, markers, textInSvg = false) {
     s.id === "p10-t27-1" ? state.deal.common_share_bylaw :
     s.id === "p3-t11" ? state.rows.unit_floor_areas?.[0]?.floor_part : undefined;
   if (!jpEmpty(literal)) return jpTextHtml({ ...s, align:"left" }, String(literal), undefined, textInSvg);
-  if (s.kind === "checkbox") return jpChecked(s, page) ? jpTextHtml(s, "■", undefined, textInSvg) : "";
+  if (s.kind === "checkbox") return jpChecked(s, page) && !jpPageChecks?.bySlot.has(s.id) ? jpTextHtml(s, "■", undefined, textInSvg) : "";
   if (markers.has(s.id)) return jpTextHtml(s, "以下余白", layout.values.get(s.id), textInSvg);
   if (s.bind?.table && s.kind !== "strike" && s.bind.row >= jpTableLength(s.bind.table)) return "";
   if (jpIsMultiline(s)) {
