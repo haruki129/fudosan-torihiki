@@ -1,0 +1,1459 @@
+<!DOCTYPE html>
+<!--
+  bot/index.html — bot-0.1.0（資料受付ボット）
+  生成日: 2026-09-18 / 実装: Sonnet5
+  正本: docs/30_追加側設計_ボット化UPD.md §2〜§4・§8・§9
+        docs/32_受入計画_ボット化UPD.md／docs/33_作業指示_...第1作業_段階B_Sonnet5向け.md
+
+  このファイルは単一 HTML・インラインの <script> 1 個・外部読込 0 本。
+  既存システム（../index.html）には一切書き込まない。
+    ・既存 IndexedDB "fudosan_torihiki_db" は version を指定せずに開き、
+      読み取りは必ず "readonly" のトランザクションだけを使う。
+    ・既存の入力欄・保存ボタン・window.__app の書込み系（4つの特別な関数）には触れない。
+  ボット自身のデータは、既存とは別の IndexedDB "fudosan_bot_db"（version 1）に置く。
+  外部への送信は CSP の connect-src 'none' で機械的に止める（外部通信のAPIは 1 行も書いていない）。
+-->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob:; frame-src 'self' blob:; object-src 'self' blob:; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E">
+<title>資料受付ボット bot-0.1.0</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --panel:#ffffff; --border:#d9dce1; --text:#1c2430; --muted:#6b7480;
+    --accent:#2563eb; --accent-ink:#ffffff; --warn:#b45309; --warn-bg:#fff7ed;
+    --danger:#b91c1c; --danger-bg:#fef2f2; --ok:#15803d; --ok-bg:#f0fdf4;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic",sans-serif;
+    font-size:14px; line-height:1.6;
+  }
+  header.topbar{
+    background:var(--panel); border-bottom:1px solid var(--border);
+    padding:10px 16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    position:sticky; top:0; z-index:5;
+  }
+  header.topbar .brand{font-weight:700; font-size:16px;}
+  header.topbar .ver{
+    font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px;
+    background:#eef2ff; color:#3730a3; padding:2px 8px; border-radius:10px;
+  }
+  header.topbar .spacer{flex:1;}
+  .container{max-width:1100px; margin:0 auto; padding:16px;}
+  .banner{
+    background:var(--warn-bg); color:var(--warn); border:1px solid #fcd9a8;
+    border-radius:8px; padding:8px 12px; font-size:12.5px; margin-bottom:14px;
+  }
+  .banner.stopped{background:var(--danger-bg); color:var(--danger); border-color:#f3b4b4; font-weight:600;}
+  section.panel{
+    background:var(--panel); border:1px solid var(--border); border-radius:10px;
+    padding:16px; margin-bottom:16px;
+  }
+  section.panel h2{margin:0 0 10px; font-size:14px; color:var(--muted); font-weight:700; letter-spacing:.02em;}
+  .row{display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+  select,input[type="text"],input[type="number"]{
+    font-size:13px; padding:6px 8px; border:1px solid var(--border); border-radius:6px; background:#fff; color:var(--text);
+  }
+  button{
+    font-size:13px; padding:7px 14px; border-radius:6px; border:1px solid var(--border);
+    background:#fff; color:var(--text); cursor:pointer;
+  }
+  button.primary{background:var(--accent); border-color:var(--accent); color:var(--accent-ink);}
+  button.primary:hover{background:#1d4ed8;}
+  button.danger{color:var(--danger); border-color:#f3b4b4;}
+  button:disabled{opacity:.5; cursor:not-allowed;}
+  button.small{padding:4px 9px; font-size:12px;}
+  .dropzone{
+    border:2px dashed var(--border); border-radius:10px; padding:30px 16px;
+    text-align:center; color:var(--muted); background:#fafbfc; transition:.1s;
+  }
+  .dropzone.drag{background:#eef2ff; border-color:var(--accent); color:var(--accent);}
+  .dropzone.disabled{opacity:.5;}
+  table.doclist{width:100%; border-collapse:collapse; font-size:12.5px;}
+  table.doclist th{text-align:left; color:var(--muted); font-weight:600; padding:6px 8px; border-bottom:1px solid var(--border);}
+  table.doclist td{padding:7px 8px; border-bottom:1px solid #eef0f2; vertical-align:top;}
+  table.doclist tr.doc-row{cursor:pointer;}
+  table.doclist tr.doc-row:hover{background:#f8fafc;}
+  table.doclist tr.doc-row.selected{background:#eef2ff;}
+  .badge{display:inline-block; font-size:11px; padding:1px 7px; border-radius:9px; margin-right:4px; white-space:nowrap;}
+  .badge.readable{background:var(--ok-bg); color:var(--ok);}
+  .badge.unreadable{background:var(--danger-bg); color:var(--danger);}
+  .badge.encrypted{background:#fdf2fb; color:#a21caf;}
+  .badge.unsupported{background:#f1f5f9; color:#475569;}
+  .badge.superseded{background:#f1f5f9; color:#64748b;}
+  .badge.samename{background:#fffbeb; color:#92400e;}
+  .badge.dup{background:#eef2ff; color:#3730a3;}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px;}
+  .muted{color:var(--muted);}
+  .uploadlog{max-height:130px; overflow:auto; font-size:12px; margin-top:8px; border-top:1px solid #eef0f2; padding-top:8px;}
+  .uploadlog .entry{padding:2px 0;}
+  .uploadlog .entry.err{color:var(--danger);}
+  .uploadlog .entry.dupe{color:#3730a3;}
+  .uploadlog .entry.ok{color:var(--ok);}
+  .previewpane{border:1px solid var(--border); border-radius:8px; padding:12px; margin-top:12px;}
+  .previewpane iframe{width:100%; height:70vh; border:1px solid var(--border); border-radius:6px; background:#eee;}
+  .previewpane img{max-width:100%; max-height:70vh; display:block; margin:0 auto; border:1px solid var(--border); border-radius:6px;}
+  .kv{display:grid; grid-template-columns:120px 1fr; gap:3px 10px; font-size:12.5px; margin-bottom:10px;}
+  .kv dt{color:var(--muted);}
+  footer.disclaimer{
+    text-align:center; color:var(--muted); font-size:11.5px; padding:14px; max-width:1100px; margin:0 auto;
+  }
+  #bot-diagnostics{display:none;}
+  #bot-diagnostics.shown{display:block;}
+  #bot-diagnostics iframe{width:100%; height:60vh; border:1px solid var(--border);}
+  #bot-diagnostics textarea{width:100%; height:260px; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:11px;}
+  .storageinfo{font-size:12px; color:var(--muted);}
+  .storagebar{height:6px; background:#eef0f2; border-radius:3px; overflow:hidden; margin-top:4px; width:220px;}
+  .storagebar > div{height:100%; background:var(--accent);}
+  [hidden]{display:none !important;}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <span class="brand">資料受付ボット</span>
+  <span class="ver mono" data-testid="bot-version">bot-0.1.0</span>
+  <span class="spacer"></span>
+  <span class="storageinfo" data-testid="storage-info">容量: 計測中…</span>
+  <label class="row" style="gap:6px; font-size:12.5px;">
+    <input type="checkbox" data-action="bot-stop-toggle" data-testid="stop-toggle">
+    止める
+  </label>
+</header>
+
+<div class="container">
+
+  <div class="banner" data-testid="storage-disclaimer">
+    このボットは、ブラウザの中だけに資料を保管しています。外部には一切送信しません。
+    ブラウザの設定やストレージの状況によっては、保管した資料が消える可能性があります。
+  </div>
+  <div class="banner stopped" data-action="bot-stopped-banner" hidden data-testid="stopped-banner">
+    現在「止める」が有効です。新しい資料の受付を止めています。既存の不動産取引システムには影響しません。
+  </div>
+
+  <section class="panel">
+    <h2>案件（資料の置き場）</h2>
+    <div class="row">
+      <select data-action="bot-case-select" data-testid="case-select" style="min-width:280px;"></select>
+      <button data-action="bot-case-new" data-testid="case-new-btn">＋ 新しい置き場を作る</button>
+      <label class="row" style="gap:6px; font-size:12.5px;">
+        <input type="checkbox" data-action="bot-scope-all-toggle" data-testid="scope-all-toggle">
+        すべての案件の資料を一覧に表示する
+      </label>
+    </div>
+    <div class="row" data-action="bot-case-new-form" hidden style="margin-top:10px; background:#fafbfc; border:1px solid var(--border); border-radius:8px; padding:10px;">
+      <span>ラベル:</span>
+      <input type="text" data-action="bot-case-label-input" data-testid="case-label-input" placeholder="例: 晴海テラス510（任意）">
+      <span>既存案件:</span>
+      <select data-action="bot-case-deal-select" data-testid="case-deal-select"></select>
+      <span>手入力ID:</span>
+      <input type="number" data-action="bot-case-deal-manual" data-testid="case-deal-manual" placeholder="（任意）" style="width:100px;">
+      <button class="primary" data-action="bot-case-create-confirm" data-testid="case-create-confirm">作成</button>
+      <button data-action="bot-case-new-cancel" data-testid="case-new-cancel">やめる</button>
+    </div>
+    <p class="muted" data-action="bot-existing-db-status" data-testid="existing-db-status" style="margin:8px 0 0; font-size:12px;"></p>
+  </section>
+
+  <section class="panel">
+    <h2>資料の受付</h2>
+    <div class="dropzone" data-action="bot-dropzone" data-testid="dropzone">
+      <p>ここに PDF・画像をまとめてドラッグ&amp;ドロップ</p>
+      <p><button data-action="bot-pick-files" data-testid="pick-files-btn">ファイルを選ぶ</button></p>
+      <input type="file" multiple hidden data-action="bot-file-input" data-testid="file-input">
+    </div>
+    <div class="uploadlog" data-action="bot-upload-log" data-testid="upload-log"></div>
+  </section>
+
+  <section class="panel">
+    <h2>一覧（<span data-action="bot-doc-count" data-testid="doc-count">0</span> 件）</h2>
+    <table class="doclist" data-testid="doc-table">
+      <thead>
+        <tr>
+          <th>元のファイル名</th><th>表示名</th><th>種類</th><th>サイズ</th><th>sha256</th><th>状態</th><th>登録時刻</th><th></th>
+        </tr>
+      </thead>
+      <tbody data-action="bot-doc-tbody" data-testid="doc-tbody"></tbody>
+    </table>
+    <p class="muted" data-action="bot-doc-empty" data-testid="doc-empty" hidden>まだ資料がありません。上のドラッグ&amp;ドロップから入れてください。</p>
+
+    <div class="previewpane" data-action="bot-preview" data-testid="preview-pane" hidden>
+      <div class="row" style="justify-content:space-between;">
+        <strong data-action="bot-preview-title" data-testid="preview-title"></strong>
+        <div class="row">
+          <button class="small" data-action="bot-doc-download" data-testid="preview-download">原本を取り出す</button>
+          <button class="small" data-action="bot-doc-supersede" data-testid="preview-supersede">差し替える</button>
+          <button class="small danger" data-action="bot-doc-preview-close" data-testid="preview-close">閉じる</button>
+        </div>
+      </div>
+      <dl class="kv" data-action="bot-preview-meta" data-testid="preview-meta"></dl>
+      <div data-action="bot-preview-body" data-testid="preview-body"></div>
+      <input type="file" hidden data-action="bot-supersede-input" data-testid="supersede-input">
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>ブラウザの保管容量</h2>
+    <p class="storageinfo" data-action="bot-storage-detail" data-testid="storage-detail">計測中…</p>
+    <div class="storagebar"><div data-action="bot-storage-bar" data-testid="storage-bar" style="width:0%"></div></div>
+    <p class="muted" data-action="bot-persist-status" data-testid="persist-status" style="font-size:12px;"></p>
+  </section>
+
+</div>
+
+<footer class="disclaimer">
+  bot-0.1.0 ・ このページは既存の不動産取引システムには一切書き込みません。
+  タブを閉じても <span class="mono">https://haruki129.github.io/fudosan-torihiki/</span> は今までどおり使えます。
+</footer>
+
+<!-- ============================================================
+     U-3 / U-4 / U-7 の実測用の隠しページ。
+     本番の通常操作からは出さない（URL の #bot-diagnostics でだけ表示する）。
+     保存ボタンは押さない。ここで入れた値はページを離れれば消える。
+     ============================================================ -->
+<section id="bot-diagnostics" class="container">
+  <section class="panel">
+    <h2>診断（U-3 / U-4 / U-7 実測・非公開）</h2>
+    <p class="muted">この容器の Chromium で測った結果です。本番での結果を保証するものではありません（docs/33 U-3・U-4）。</p>
+    <div class="row">
+      <button class="primary" data-action="bot-diag-run" data-testid="diag-run">実測する</button>
+      <label>対象URL: <input type="text" data-action="bot-diag-url" data-testid="diag-url" value="../" style="width:220px;"></label>
+    </div>
+    <iframe data-action="bot-diag-iframe" data-testid="diag-iframe" title="診断用iframe"></iframe>
+    <textarea readonly data-action="bot-diag-output" data-testid="diag-output"></textarea>
+  </section>
+</section>
+
+<script>
+"use strict";
+
+/* ==========================================================================
+ * 0. 定数
+ * ========================================================================= */
+var BOT_VERSION = "bot-0.1.0";
+var EXISTING_DB_NAME = "fudosan_torihiki_db";
+var EXISTING_DB_EXPECT_VERSION = 2;
+var EXISTING_DB_EXPECT_STORE_COUNT = 15;
+var BOT_DB_NAME = "fudosan_bot_db";
+var BOT_DB_VERSION = 1;
+
+/* 既存 DB へは読み取り専用でしか触れない。この定数以外の文字列で
+ * 既存 DB のトランザクションモードを指定することはない。
+ * ボット自身の DB（fudosan_bot_db）の読取・書込のモード定数は、この定数とは
+ * 別に BOT_DB:BEGIN〜END の区間の中で宣言する（F-12: 既存 DB とボット DB の
+ * モード定数を混用しない）。書き込み可のトランザクションモード文字列は、
+ * その区間の中だけで宣言・使用する（bot.b03・bot/tools/bot-verify-bot-checks.py
+ * の run_b03 が構造検査で確認する）。そのためここでは宣言しない。 */
+var EXISTING_DB_READ_MODE = "readonly";
+
+/* ==========================================================================
+ * 1. 小物
+ * ========================================================================= */
+function $(sel, root) { return (root || document).querySelector(sel); }
+function $all(sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
+function escapeHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+  });
+}
+function nowIso() { return new Date().toISOString(); }
+function formatDateTime(iso) {
+  if (!iso) return "—";
+  try {
+    var d = new Date(iso);
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0") +
+      " " + String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0") + ":" + String(d.getSeconds()).padStart(2, "0");
+  } catch (e) { return iso; }
+}
+function formatBytes(n) {
+  if (n === 0) return "0 B";
+  if (n == null) return "—";
+  var units = ["B", "KB", "MB", "GB"];
+  var i = 0; var v = n;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return (i === 0 ? v : v.toFixed(1)) + " " + units[i];
+}
+function bufToHex(buf) {
+  var bytes = new Uint8Array(buf);
+  var hex = new Array(bytes.length);
+  for (var i = 0; i < bytes.length; i++) hex[i] = bytes[i].toString(16).padStart(2, "0");
+  return hex.join("");
+}
+function sha256Hex(arrayBuffer) {
+  return crypto.subtle.digest("SHA-256", arrayBuffer).then(bufToHex);
+}
+/* 末尾付近だけを走査する軽いバイト列検索（PDF の %%EOF 判定用）。
+ * 単一 HTML に PDF パーサを同梱しない方針（docs/30 §2-1）のため、
+ * 完全な構文解析はしない簡易ヒューリスティックである。 */
+function bytesContainAscii(bytes, marker, fromEnd) {
+  var m = marker; var mlen = m.length;
+  var start = 0, end = bytes.length;
+  if (fromEnd && bytes.length > fromEnd) start = bytes.length - fromEnd;
+  outer:
+  for (var i = start; i <= end - mlen; i++) {
+    for (var j = 0; j < mlen; j++) {
+      if (bytes[i + j] !== m.charCodeAt(j)) continue outer;
+    }
+    return true;
+  }
+  return false;
+}
+function extOf(filename) {
+  var m = /\.([A-Za-z0-9]+)$/.exec(filename || "");
+  return m ? m[1].toLowerCase() : "";
+}
+
+/* ==========================================================================
+ * 1b. PDF の暗号化判定（F-1/F-2）
+ *   末尾だけの /Encrypt 文字列検索はやめる（(a) 先頭寄りにしか無い場合を
+ *   見落とす、(b) 本文中に "/Encrypt" という文字が出るだけの読める PDF を
+ *   誤検知する、という2つの問題があった）。
+ *   ファイル全体を対象に、(1) trailer 辞書（"trailer" 〜 次の "startxref"
+ *   の間）、(2) /Type /XRef を持つ xref ストリーム辞書（その << 〜 >> の
+ *   内側）のどちらかに /Encrypt というキーがあるかで判定する。
+ *   これも完全な構文解析ではない簡易ヒューリスティックだが、
+ *   「本文の地の文に出るだけの語」と「実際の暗号化辞書のキー」を
+ *   区別できる程度には構造を見る（docs/30 §2-1 の方針の範囲内）。
+ * ========================================================================= */
+function indexOfAscii(bytes, marker, fromIndex, toIndex) {
+  var mlen = marker.length;
+  var start = fromIndex || 0;
+  var end = (toIndex == null ? bytes.length : toIndex) - mlen;
+  outer:
+  for (var i = start; i <= end; i++) {
+    for (var j = 0; j < mlen; j++) {
+      if (bytes[i + j] !== marker.charCodeAt(j)) continue outer;
+    }
+    return i;
+  }
+  return -1;
+}
+function lastIndexOfAscii(bytes, marker, beforeIndex) {
+  var mlen = marker.length;
+  var start = Math.min(beforeIndex == null ? bytes.length : beforeIndex, bytes.length) - mlen;
+  outer:
+  for (var i = start; i >= 0; i--) {
+    for (var j = 0; j < mlen; j++) {
+      if (bytes[i + j] !== marker.charCodeAt(j)) continue outer;
+    }
+    return i;
+  }
+  return -1;
+}
+/* PDF の「名前」トークンの続き文字ではない = トークン境界とみなすバイト。
+ * これで /Encrypt が /EncryptMetadata 等の前方一致にならないようにする。 */
+function isPdfDelimOrWhitespaceByte(b) {
+  if (b == null) return true; // ファイル末尾
+  if (b === 0x00 || b === 0x09 || b === 0x0A || b === 0x0C || b === 0x0D || b === 0x20) return true; // 空白
+  if (b === 0x28 || b === 0x29 || b === 0x3C || b === 0x3E || b === 0x5B || b === 0x5D ||
+      b === 0x7B || b === 0x7D || b === 0x2F || b === 0x25) return true; // ( ) < > [ ] { } / %
+  return false;
+}
+/* [from, to) の範囲に /Encrypt という「名前トークン」があるか。 */
+function hasEncryptKeyInRange(bytes, from, to) {
+  var marker = "/Encrypt";
+  var i = from;
+  while (i < to) {
+    var idx = indexOfAscii(bytes, marker, i, to);
+    if (idx === -1) return false;
+    var afterByte = (idx + marker.length < bytes.length) ? bytes[idx + marker.length] : null;
+    if (isPdfDelimOrWhitespaceByte(afterByte)) return true;
+    i = idx + 1;
+  }
+  return false;
+}
+/* bytes[dictStart]/[dictStart+1] は "<<" 自身。対応する ">>" の直後の
+ * インデックスを、ネストを数えながら返す（対応が無ければ -1）。 */
+function findMatchingDictEnd(bytes, dictStart) {
+  var depth = 0;
+  var i = dictStart;
+  var n = bytes.length;
+  while (i < n - 1) {
+    if (bytes[i] === 0x3C && bytes[i + 1] === 0x3C) { depth++; i += 2; continue; }
+    if (bytes[i] === 0x3E && bytes[i + 1] === 0x3E) { depth--; i += 2; if (depth === 0) return i; continue; }
+    i++;
+  }
+  return -1;
+}
+/* trailer 〜 次の startxref の間に /Encrypt キーがあるか（ファイル全体を対象）。 */
+function findTrailerEncrypt(bytes) {
+  var searchFrom = 0;
+  while (true) {
+    var idx = indexOfAscii(bytes, "trailer", searchFrom);
+    if (idx === -1) return false;
+    var beforeByte = idx > 0 ? bytes[idx - 1] : null;
+    var afterByte = (idx + 7 < bytes.length) ? bytes[idx + 7] : null;
+    if (isPdfDelimOrWhitespaceByte(beforeByte) && isPdfDelimOrWhitespaceByte(afterByte)) {
+      var regionStart = idx + 7;
+      var nextStartxref = indexOfAscii(bytes, "startxref", regionStart);
+      var regionEnd = (nextStartxref === -1) ? bytes.length : nextStartxref;
+      if (hasEncryptKeyInRange(bytes, regionStart, regionEnd)) return true;
+    }
+    searchFrom = idx + 1;
+  }
+}
+/* /Type /XRef を持つ xref ストリーム辞書を探し、その << 〜 >> の内側に
+ * /Encrypt キーがあるか（ファイル全体を対象）。 */
+function findXRefStreamEncrypt(bytes) {
+  var searchFrom = 0;
+  while (true) {
+    var typeIdx = indexOfAscii(bytes, "/Type", searchFrom);
+    if (typeIdx === -1) return false;
+    var afterType = (typeIdx + 5 < bytes.length) ? bytes[typeIdx + 5] : null;
+    if (!isPdfDelimOrWhitespaceByte(afterType)) { searchFrom = typeIdx + 1; continue; }
+    var p = typeIdx + 5;
+    while (p < bytes.length && isPdfDelimOrWhitespaceByte(bytes[p]) && bytes[p] !== 0x2F) p++;
+    var isXRef = (p + 5 <= bytes.length) &&
+      bytes[p] === 0x2F && bytes[p + 1] === 0x58 && bytes[p + 2] === 0x52 && bytes[p + 3] === 0x65 && bytes[p + 4] === 0x66; // "/XRef"
+    var afterXRef = isXRef ? ((p + 5 < bytes.length) ? bytes[p + 5] : null) : null;
+    if (isXRef && isPdfDelimOrWhitespaceByte(afterXRef)) {
+      var dictStart = lastIndexOfAscii(bytes, "<<", typeIdx);
+      if (dictStart !== -1) {
+        var dictEnd = findMatchingDictEnd(bytes, dictStart);
+        if (dictEnd !== -1 && hasEncryptKeyInRange(bytes, dictStart, dictEnd)) return true;
+      }
+    }
+    searchFrom = typeIdx + 1;
+  }
+}
+function pdfIsEncrypted(bytes) {
+  return findTrailerEncrypt(bytes) || findXRefStreamEncrypt(bytes);
+}
+
+/* ==========================================================================
+ * 2. 既存 DB（fudosan_torihiki_db）— 読み取り専用アクセス
+ *    version を指定せず開く／readonly トランザクションのみ／
+ *    存在しなければ開かない（新規作成してしまうため）。
+ * ========================================================================= */
+/* === EXISTING_DB:BEGIN === */
+var ExistingDb = (function () {
+  var handle = null;
+  var status = { checked: false, present: null, opened: false, error: null,
+    databases_api_supported: null, version: null, store_count: null };
+
+  function databasesApiSupported() {
+    return typeof indexedDB.databases === "function";
+  }
+
+  function checkPresent() {
+    if (!databasesApiSupported()) {
+      status.databases_api_supported = false;
+      status.present = null; // 判定不能
+      return Promise.resolve(false);
+    }
+    status.databases_api_supported = true;
+    return indexedDB.databases().then(function (list) {
+      var found = (list || []).some(function (d) { return d.name === EXISTING_DB_NAME; });
+      status.present = found;
+      return found;
+    }).catch(function (err) {
+      status.databases_api_supported = false;
+      status.present = null;
+      status.error = String(err && err.message || err);
+      return false;
+    });
+  }
+
+  /* 唯一の open 経路。version 引数を絶対に渡さない。 */
+  function openReadOnlyIfPresent() {
+    status.checked = true;
+    return checkPresent().then(function (present) {
+      if (!present) {
+        status.opened = false;
+        return null;
+      }
+      return new Promise(function (resolve) {
+        var req = indexedDB.open(EXISTING_DB_NAME); // 第2引数なし＝version指定なし
+        req.onupgradeneeded = function () {
+          /* 既存DBが在ると databases() が言ったのに onupgradeneeded が
+           * 走るのは version 不一致のバグである。ここに来たら即座に
+           * 中断し、既存DBには絶対に触らない。
+           * F-13: abort() 自体が失敗した場合も、握りつぶさず status.error に残す
+           * （既存DBに触れていないという結論自体は変わらないが、原因を消さない）。 */
+          var abortErr = null;
+          try { req.transaction && req.transaction.abort(); } catch (e) { abortErr = String(e && e.message || e); }
+          status.opened = false;
+          status.error = "onupgradeneeded が発生したため中断しました（既存DBには触れていません）" +
+            (abortErr ? "／abort() 失敗: " + abortErr : "");
+          resolve(null);
+        };
+        req.onsuccess = function (e) {
+          handle = e.target.result;
+          status.opened = true;
+          status.version = handle.version;
+          status.store_count = handle.objectStoreNames.length;
+          resolve(handle);
+        };
+        req.onerror = function (e) {
+          status.opened = false;
+          status.error = String(e.target.error);
+          resolve(null);
+        };
+      });
+    });
+  }
+
+  function readAll(storeName) {
+    if (!handle) return Promise.resolve([]);
+    return new Promise(function (resolve, reject) {
+      try {
+        var tx = handle.transaction([storeName], EXISTING_DB_READ_MODE);
+        var req = tx.objectStore(storeName).getAll();
+        req.onsuccess = function () { resolve(req.result || []); };
+        req.onerror = function () { reject(req.error); };
+      } catch (err) { reject(err); }
+    });
+  }
+
+  function readDeals() { return readAll("deals"); }
+
+  function snapshotAllStores() {
+    /* docs/28 §5-4／docs/30 §4-3「証拠」用。読み取りだけで全ストアを走査する。 */
+    if (!handle) return Promise.resolve({ opened: false });
+    var names = Array.prototype.slice.call(handle.objectStoreNames);
+    return Promise.all(names.map(function (n) { return readAll(n).then(function (rows) { return [n, rows]; }); }))
+      .then(function (pairs) {
+        var out = { opened: true, db_version: handle.version, store_count: names.length, stores: {} };
+        pairs.forEach(function (p) { out.stores[p[0]] = p[1]; });
+        return out;
+      });
+  }
+
+  return { openReadOnlyIfPresent: openReadOnlyIfPresent, readDeals: readDeals, readAll: readAll,
+    snapshotAllStores: snapshotAllStores, status: function () { return status; },
+    databasesApiSupported: databasesApiSupported };
+})();
+/* === EXISTING_DB:END === */
+
+/* ==========================================================================
+ * 3. ボット自身の DB（fudosan_bot_db）
+ * ========================================================================= */
+/* === BOT_DB:BEGIN === */
+/* ボット自身の DB (fudosan_bot_db) の読取・書込にだけ使う transaction mode。
+ * 既存 DB へは一度も使わない。この不変条件は、この定数の書き方ではなく、
+ * この区間全体を対象にした構造検査（run_b03）で確かめる。
+ * F-12: 既存 DB 側の読取モード定数（EXISTING_DB_READ_MODE）とは別の定数に
+ * 分ける。値は同じ "readonly" でも、意味の混用（既存DB用の定数をボットDBの
+ * 読取にも使い回す）をしないため。 */
+var BOT_DB_READ_MODE = "readonly";
+var BOT_DB_WRITE_MODE = "readwrite";
+
+var BotDb = (function () {
+  var handle = null;
+
+  function open() {
+    return new Promise(function (resolve, reject) {
+      var req = indexedDB.open(BOT_DB_NAME, BOT_DB_VERSION);
+      req.onupgradeneeded = function (e) {
+        var d = e.target.result;
+        if (!d.objectStoreNames.contains("case_links")) {
+          var s1 = d.createObjectStore("case_links", { keyPath: "id", autoIncrement: true });
+          s1.createIndex("deal_id", "deal_id", { unique: false });
+        }
+        if (!d.objectStoreNames.contains("documents")) {
+          var s2 = d.createObjectStore("documents", { keyPath: "id", autoIncrement: true });
+          s2.createIndex("case_link_id", "case_link_id", { unique: false });
+          s2.createIndex("sha256", "sha256", { unique: false });
+          s2.createIndex("status", "status", { unique: false });
+        }
+        if (!d.objectStoreNames.contains("doc_blobs")) {
+          d.createObjectStore("doc_blobs", { keyPath: "sha256" });
+        }
+        if (!d.objectStoreNames.contains("extractions")) {
+          var s4 = d.createObjectStore("extractions", { keyPath: "id", autoIncrement: true });
+          s4.createIndex("document_id", "document_id", { unique: false });
+          s4.createIndex("case_link_id", "case_link_id", { unique: false });
+        }
+        if (!d.objectStoreNames.contains("field_maps")) {
+          var s5 = d.createObjectStore("field_maps", { keyPath: "id", autoIncrement: true });
+          s5.createIndex("field_key", "field_key", { unique: false });
+        }
+        if (!d.objectStoreNames.contains("candidates")) {
+          var s6 = d.createObjectStore("candidates", { keyPath: "id", autoIncrement: true });
+          s6.createIndex("case_link_id", "case_link_id", { unique: false });
+          s6.createIndex("field_key", "field_key", { unique: false });
+          s6.createIndex("state", "state", { unique: false });
+        }
+        if (!d.objectStoreNames.contains("runs")) {
+          var s7 = d.createObjectStore("runs", { keyPath: "id", autoIncrement: true });
+          s7.createIndex("case_link_id", "case_link_id", { unique: false });
+          s7.createIndex("phase", "phase", { unique: false });
+        }
+        if (!d.objectStoreNames.contains("confirmations")) {
+          var s8 = d.createObjectStore("confirmations", { keyPath: "id", autoIncrement: true });
+          s8.createIndex("case_link_id", "case_link_id", { unique: false });
+          s8.createIndex("candidate_id", "candidate_id", { unique: false });
+        }
+        if (!d.objectStoreNames.contains("settings")) {
+          d.createObjectStore("settings", { keyPath: "key" });
+        }
+      };
+      req.onsuccess = function (e) { handle = e.target.result; resolve(handle); };
+      req.onerror = function (e) { reject(e.target.error); };
+    });
+  }
+
+  function tx(stores, mode) { return handle.transaction(stores, mode); }
+
+  function getAll(store) {
+    return new Promise(function (resolve, reject) {
+      var req = tx([store], BOT_DB_READ_MODE).objectStore(store).getAll();
+      req.onsuccess = function () { resolve(req.result || []); };
+      req.onerror = function () { reject(req.error); };
+    });
+  }
+  function get(store, key) {
+    return new Promise(function (resolve, reject) {
+      var req = tx([store], BOT_DB_READ_MODE).objectStore(store).get(key);
+      req.onsuccess = function () { resolve(req.result || null); };
+      req.onerror = function () { reject(req.error); };
+    });
+  }
+  function getAllByIndex(store, indexName, value) {
+    return new Promise(function (resolve, reject) {
+      var idx = tx([store], BOT_DB_READ_MODE).objectStore(store).index(indexName);
+      var req = idx.getAll(IDBKeyRange.only(value));
+      req.onsuccess = function () { resolve(req.result || []); };
+      req.onerror = function () { reject(req.error); };
+    });
+  }
+  function put(store, value) {
+    return new Promise(function (resolve, reject) {
+      var t = tx([store], BOT_DB_WRITE_MODE);
+      var req = t.objectStore(store).put(value);
+      req.onsuccess = function () { resolve(req.result); };
+      req.onerror = function () { reject(req.error); };
+    });
+  }
+  function add(store, value) {
+    return new Promise(function (resolve, reject) {
+      var t = tx([store], BOT_DB_WRITE_MODE);
+      var req = t.objectStore(store).add(value);
+      req.onsuccess = function () { resolve(req.result); };
+      req.onerror = function () { reject(req.error); };
+    });
+  }
+  function del(store, key) {
+    return new Promise(function (resolve, reject) {
+      var t = tx([store], BOT_DB_WRITE_MODE);
+      var req = t.objectStore(store)["delete"](key);
+      req.onsuccess = function () { resolve(true); };
+      req.onerror = function () { reject(req.error); };
+    });
+  }
+  /* 差替え（supersede）は「新規行の追加」と「旧行の更新」を1トランザクションで行う。 */
+  function supersedeTransaction(oldDoc, newDocWithoutId) {
+    return new Promise(function (resolve, reject) {
+      var t = tx(["documents"], BOT_DB_WRITE_MODE);
+      var store = t.objectStore("documents");
+      var addReq = store.add(newDocWithoutId);
+      var newId = null;
+      addReq.onsuccess = function () {
+        newId = addReq.result;
+        oldDoc.status = "superseded";
+        var putReq = store.put(oldDoc);
+        putReq.onerror = function () { reject(putReq.error); };
+      };
+      addReq.onerror = function () { reject(addReq.error); };
+      t.oncomplete = function () { resolve(newId); };
+      t.onerror = function () { reject(t.error); };
+    });
+  }
+  function rawHandle() { return handle; }
+
+  return { open: open, getAll: getAll, get: get, getAllByIndex: getAllByIndex,
+    put: put, add: add, del: del, supersedeTransaction: supersedeTransaction, rawHandle: rawHandle };
+})();
+/* === BOT_DB:END === */
+
+/* ==========================================================================
+ * 4. 資料の判定（PDF / 画像 / 未対応・壊れている・暗号化）
+ *    完全な構文解析はしない（単一HTML・外部ライブラリ0本の方針）。
+ *    先頭バイトの目印と末尾付近の簡易走査によるヒューリスティック。
+ * ========================================================================= */
+function classifyBytes(bytes, filename) {
+  var ext = extOf(filename);
+  if (bytes.length === 0) {
+    return { status: "unreadable", kind: "empty", reason: "ファイルが空です（0バイト）。" };
+  }
+  var isPdfMagic = bytes.length >= 5 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46 && bytes[4] === 0x2D; // %PDF-
+  var isPngMagic = bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47 &&
+    bytes[4] === 0x0D && bytes[5] === 0x0A && bytes[6] === 0x1A && bytes[7] === 0x0A;
+  var isJpegMagic = bytes.length >= 3 && bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF;
+
+  if (isPdfMagic) {
+    var hasEncrypt = pdfIsEncrypted(bytes); // F-1/F-2: 構造検査（trailer／xrefストリーム辞書）
+    if (hasEncrypt) {
+      return { status: "encrypted", kind: "pdf", reason: "パスワードで保護された PDF です。原本は保存しますが、内容は表示できません。" };
+    }
+    var hasEof = bytesContainAscii(bytes, "%%EOF", 2048);
+    if (!hasEof) {
+      return { status: "unreadable", kind: "pdf", reason: "PDF の終端の目印（%%EOF）が見つかりません。壊れている可能性があります。" };
+    }
+    return { status: "readable", kind: "pdf", reason: "" };
+  }
+  if (isPngMagic) return { status: "readable", kind: "image/png", reason: "" };
+  if (isJpegMagic) return { status: "readable", kind: "image/jpeg", reason: "" };
+
+  if (ext === "pdf") {
+    return { status: "unreadable", kind: "pdf", reason: "PDF の先頭の目印（%PDF-）が見つかりません。壊れている可能性があります。" };
+  }
+  if (ext === "png" || ext === "jpg" || ext === "jpeg") {
+    return { status: "unreadable", kind: ext, reason: "拡張子は" + ext + "ですが、画像として読み取れる目印が見つかりません。" };
+  }
+  return { status: "unsupported", kind: ext || "unknown",
+    reason: "この形式（" + (ext ? "." + ext : "不明") + "）は今回は未対応です。PDF・PNG・JPEG のみ対応しています。" };
+}
+
+/* ==========================================================================
+ * 5. アプリ状態
+ * ========================================================================= */
+var App = {
+  currentCaseLinkId: null,
+  scopeAll: false,
+  botEnabled: true,
+  writeEnabled: false, // F-4: settings.write_enabled の既定値（今回は読むだけ）
+  existingDeals: [],
+  caseLinks: [],
+  documents: [],
+  selectedDocId: null,
+  previewObjectUrl: null,
+  settingsCache: {},
+};
+
+/* ==========================================================================
+ * 6. 案件（資料置き場）
+ * ========================================================================= */
+function ensureDefaultCaseLink() {
+  return BotDb.getAll("case_links").then(function (rows) {
+    App.caseLinks = rows;
+    if (rows.length === 0) {
+      var now = nowIso();
+      return BotDb.add("case_links", { deal_id: null, deal_snapshot: null, label: "未定", created_at: now, updated_at: now })
+        .then(function (id) { return BotDb.getAll("case_links"); })
+        .then(function (rows2) { App.caseLinks = rows2; App.currentCaseLinkId = rows2[0].id; });
+    }
+    App.currentCaseLinkId = rows[0].id;
+    return null;
+  });
+}
+
+function caseLinkLabel(c) {
+  if (c.label && c.label !== "未定") return c.label + "（#" + c.id + "）";
+  if (c.deal_id != null) return "#" + c.id + " ・ 既存案件 " + c.deal_id;
+  return "#" + c.id + " ・ 未定（案件と未紐付け）";
+}
+
+function renderCaseSelect() {
+  var sel = $('[data-action="bot-case-select"]');
+  sel.innerHTML = App.caseLinks.map(function (c) {
+    return '<option value="' + c.id + '"' + (c.id === App.currentCaseLinkId ? " selected" : "") + '>' + escapeHtml(caseLinkLabel(c)) + '</option>';
+  }).join("");
+
+  var dealSel = $('[data-action="bot-case-deal-select"]');
+  var opts = '<option value="">（未定のまま）</option>';
+  opts += App.existingDeals.map(function (d) {
+    var price = (d.price != null) ? (Number(d.price).toLocaleString("ja-JP") + "円") : "—";
+    return '<option value="' + d.id + '">#' + d.id + " ・ " + escapeHtml(d.contract_date || "—") + " ・ " + escapeHtml(price) + '</option>';
+  }).join("");
+  dealSel.innerHTML = opts;
+}
+
+/* ==========================================================================
+ * 7. 資料の受付・識別
+ * ========================================================================= */
+function logUpload(kind, msg) {
+  var log = $('[data-action="bot-upload-log"]');
+  var div = document.createElement("div");
+  div.className = "entry " + kind;
+  div.textContent = msg;
+  log.insertBefore(div, log.firstChild);
+}
+
+/* F-3: 容量の歯止め。usage + 追加分 が quota*0.90 を超えるなら止める
+ * （docs/30 §3-4「残り10%」・docs/33 §13「容量が足りない: 受付を止めて
+ * 『残り ◯ MB』と出す。黙って消さない」。しきい値は第3周 R-2 で 0.95 から
+ * 設計どおりの 0.90 へ修正）。estimate() 自体が使えない／失敗したときは
+ * 判定不能として通す（既存の容量表示と同じ扱い。実際の書込み失敗は
+ * QuotaExceededError として下流で捕まえるので二重の歯止めになる）。 */
+function checkQuotaHeadroom(extraBytes) {
+  if (!navigator.storage || !navigator.storage.estimate) {
+    return Promise.resolve({ ok: true, reason: "estimate_unsupported" });
+  }
+  return navigator.storage.estimate().then(function (est) {
+    var usage = est.usage || 0, quota = est.quota || 0;
+    if (!quota) return { ok: true, reason: "quota_unknown", usage: usage, quota: quota };
+    var projected = usage + (extraBytes || 0);
+    var limit = quota * 0.90;
+    if (projected > limit) {
+      var remaining = Math.max(0, quota - usage);
+      return {
+        ok: false, usage: usage, quota: quota, projected: projected, limit: limit,
+        message: "保管容量が残りわずかのため、受付を止めました。残り " + formatBytes(remaining) + "（上限の90%に達しています）。",
+      };
+    }
+    return { ok: true, usage: usage, quota: quota, projected: projected, limit: limit };
+  })["catch"](function (err) {
+    return { ok: true, reason: "estimate_failed", error: String(err && err.message || err) };
+  });
+}
+
+/* F-10: 登録に失敗した資料も runs に記録として残す
+ * （一覧のログ行はリロードで消えるが、runs の記録は残る。docs/33 §13
+ * 「登録の途中で失敗した…その1件だけ失敗として記録し」）。 */
+function recordFailedRun(caseLinkId, fileName, message) {
+  return BotDb.add("runs", {
+    case_link_id: caseLinkId, phase: "ingest", outcome: "error",
+    file_name: fileName, error: message, at: nowIso(),
+  })["catch"](function (err) {
+    console.error("runs への失敗記録に失敗しました", err); // eslint-disable-line no-console
+  });
+}
+
+function ingestOneFile(file, caseLinkId) {
+  return file.arrayBuffer().then(function (buf) {
+    return sha256Hex(buf).then(function (sha) {
+      var bytes = new Uint8Array(buf);
+      var cls = classifyBytes(bytes, file.name);
+      return BotDb.getAllByIndex("documents", "case_link_id", caseLinkId).then(function (existingInCase) {
+        var dup = existingInCase.filter(function (d) { return d.sha256 === sha; })[0];
+        if (dup) {
+          logUpload("dupe", file.name + " … もう入っています（資料ID " + dup.id + "）");
+          return { outcome: "duplicate", document_id: dup.id };
+        }
+        return checkQuotaHeadroom(file.size).then(function (headroom) {
+          if (!headroom.ok) { throw new Error(headroom.message); }
+          return BotDb.put("doc_blobs", { sha256: sha, blob: file }).then(function () {
+            var now = nowIso();
+            var doc = {
+              case_link_id: caseLinkId,
+              original_name: file.name,
+              display_name: file.name,
+              sha256: sha,
+              bytes: file.size,
+              mime: file.type || "",
+              kind: cls.kind,
+              version: 1,
+              doc_kind: "要確認",
+              doc_date: "不明",
+              source: "upload",
+              uploaded_by: "local-user",
+              uploaded_at: now,
+              status: cls.status,
+              content_readable: cls.status === "readable", // F-7: 差替えで status が superseded になっても消えない、元の読める/読めないの判定
+              unreadable_reason: cls.reason || null,
+              supersedes_document_id: null,
+            };
+            return BotDb.add("documents", doc).then(function (id) {
+              logUpload("ok", file.name + " … 登録しました（資料ID " + id + " ・ " + cls.status + "）");
+              return { outcome: "added", document_id: id };
+            });
+          });
+        });
+      });
+    });
+  })["catch"](function (err) {
+    // QuotaExceededError（実際の書込み失敗）も、上の checkQuotaHeadroom による
+    // 事前ブロックも、握りつぶさずここで1件の失敗として扱う（F-3・F-10）。
+    var msg = String((err && err.name) ? err.name + ": " : "") + String(err && err.message || err);
+    logUpload("err", file.name + " … 登録に失敗しました: " + msg);
+    return recordFailedRun(caseLinkId, file.name, msg).then(function () {
+      return { outcome: "error", error: msg };
+    });
+  });
+}
+
+function ingestFiles(fileList, caseLinkId) {
+  if (!App.botEnabled) {
+    logUpload("err", "「止める」が有効なため、資料を受け付けていません。");
+    return Promise.resolve([]);
+  }
+  var files = Array.prototype.slice.call(fileList);
+  var results = [];
+  var chain = Promise.resolve();
+  files.forEach(function (f) {
+    chain = chain.then(function () { return ingestOneFile(f, caseLinkId).then(function (r) { results.push(r); }); });
+  });
+  return chain.then(function () {
+    return refreshDocuments().then(function () {
+      return refreshStorageEstimate().then(function () { return results; }); // F-3: 追加後に容量表示を読み直す
+    });
+  });
+}
+
+/* ==========================================================================
+ * 8. 一覧の描画（同名・内容違いの検出を含む）
+ * ========================================================================= */
+function computeSamenameIds(docs) {
+  var byName = {};
+  docs.forEach(function (d) {
+    if (d.status === "superseded") return;
+    /* F-5: 以前は区切りに不可視制御文字(\x01)を使っており、目視では
+     * 区切りが無いように見えて事故の元だった。JSON.stringify で配列として
+     * キー化し、区切りを明示・堅牢にする。 */
+    var key = JSON.stringify([d.case_link_id, d.original_name]);
+    (byName[key] = byName[key] || []).push(d);
+  });
+  var flagged = {};
+  Object.keys(byName).forEach(function (key) {
+    var group = byName[key];
+    var shas = {};
+    group.forEach(function (d) { shas[d.sha256] = true; });
+    if (Object.keys(shas).length > 1) {
+      group.forEach(function (d) { flagged[d.id] = true; });
+    }
+  });
+  return flagged;
+}
+
+function refreshDocuments() {
+  return BotDb.getAll("documents").then(function (all) {
+    App.documents = all;
+    renderDocTable();
+  });
+}
+
+function statusLabel(s) {
+  return { readable: "読める", unreadable: "読めません", encrypted: "暗号化", unsupported: "未対応", superseded: "旧版" }[s] || s;
+}
+
+function renderDocTable() {
+  var tbody = $('[data-action="bot-doc-tbody"]');
+  var scoped = App.scopeAll ? App.documents : App.documents.filter(function (d) { return d.case_link_id === App.currentCaseLinkId; });
+  scoped = scoped.slice().sort(function (a, b) { return (b.uploaded_at || "").localeCompare(a.uploaded_at || ""); });
+  var samenameIds = computeSamenameIds(App.documents);
+
+  $('[data-action="bot-doc-count"]').textContent = String(scoped.length);
+  $('[data-action="bot-doc-empty"]').hidden = scoped.length !== 0;
+
+  tbody.innerHTML = scoped.map(function (d) {
+    var badges = '<span class="badge ' + d.status + '">' + escapeHtml(statusLabel(d.status)) + "</span>";
+    if (samenameIds[d.id]) badges += '<span class="badge samename">同名・内容違い</span>';
+    if (d.version > 1) badges += '<span class="badge dup">版 ' + d.version + '</span>';
+    var caseLabel = App.scopeAll ? ('<div class="muted mono" style="font-size:11px;">case #' + d.case_link_id + "</div>") : "";
+    return '<tr class="doc-row' + (d.id === App.selectedDocId ? " selected" : "") + '" data-action="bot-doc-row" data-doc-id="' + d.id + '" data-testid="doc-row-' + d.id + '">' +
+      "<td>" + escapeHtml(d.original_name) + caseLabel + "</td>" +
+      "<td>" + escapeHtml(d.display_name || d.original_name) + "</td>" + /* F-8: 表示名列（今回は original_name と同値） */
+      "<td>" + escapeHtml(d.kind || d.mime || "") + "</td>" +
+      "<td>" + formatBytes(d.bytes) + "</td>" +
+      '<td class="mono">' + escapeHtml((d.sha256 || "").slice(0, 8)) + "</td>" +
+      "<td>" + badges + "</td>" +
+      "<td>" + formatDateTime(d.uploaded_at) + "</td>" +
+      '<td><button class="small" data-action="bot-doc-quickdl" data-doc-id="' + d.id + '" data-testid="doc-quickdl-' + d.id + '">取り出す</button></td>' +
+      "</tr>";
+  }).join("");
+}
+
+/* ==========================================================================
+ * 9. プレビュー
+ * ========================================================================= */
+function closePreview() {
+  if (App.previewObjectUrl) { URL.revokeObjectURL(App.previewObjectUrl); App.previewObjectUrl = null; }
+  App.selectedDocId = null;
+  $('[data-action="bot-preview"]').hidden = true;
+  renderDocTable();
+}
+
+function openPreview(docId) {
+  var doc = App.documents.filter(function (d) { return d.id === docId; })[0];
+  if (!doc) return;
+  App.selectedDocId = docId;
+  renderDocTable();
+  BotDb.get("doc_blobs", doc.sha256).then(function (rec) {
+    if (App.previewObjectUrl) { URL.revokeObjectURL(App.previewObjectUrl); App.previewObjectUrl = null; }
+    var pane = $('[data-action="bot-preview"]');
+    pane.hidden = false;
+    $('[data-action="bot-preview-title"]').textContent = doc.original_name;
+    var meta = $('[data-action="bot-preview-meta"]');
+    meta.innerHTML =
+      "<dt>資料ID</dt><dd>" + doc.id + "</dd>" +
+      "<dt>状態</dt><dd>" + escapeHtml(statusLabel(doc.status)) + (doc.unreadable_reason ? "（" + escapeHtml(doc.unreadable_reason) + "）" : "") + "</dd>" +
+      "<dt>sha256</dt><dd class=\"mono\">" + escapeHtml(doc.sha256) + "</dd>" +
+      "<dt>サイズ</dt><dd>" + formatBytes(doc.bytes) + "</dd>" +
+      "<dt>版</dt><dd>" + doc.version + (doc.supersedes_document_id ? "（旧: 資料ID " + doc.supersedes_document_id + "）" : "") + "</dd>" +
+      "<dt>登録時刻</dt><dd>" + formatDateTime(doc.uploaded_at) + "</dd>";
+    var body = $('[data-action="bot-preview-body"]');
+    if (!rec) { body.innerHTML = '<p class="muted">原本が見つかりません。</p>'; return; }
+    var url = URL.createObjectURL(rec.blob);
+    App.previewObjectUrl = url;
+    /* F-7: status ではなく content_readable を見る。status は差替えで
+     * "superseded" に上書きされるが、content_readable は元の資料が
+     * 読めた/読めなかったを保ち続けるので、旧版のプレビューも可能なまま。 */
+    if (doc.content_readable && doc.kind === "pdf") {
+      body.innerHTML = '<iframe data-testid="preview-frame" src="' + url + '"></iframe>';
+    } else if (doc.content_readable && doc.kind && doc.kind.indexOf("image/") === 0) {
+      body.innerHTML = '<img data-testid="preview-image" src="' + url + '" alt="">';
+    } else {
+      body.innerHTML = '<p class="muted" data-testid="preview-unavailable">' +
+        "プレビューは表示できません。" + (doc.unreadable_reason ? escapeHtml(doc.unreadable_reason) : "") +
+        ' 「原本を取り出す」からファイルそのものは取得できます。</p>';
+    }
+  });
+}
+
+function downloadDoc(docId) {
+  var doc = App.documents.filter(function (d) { return d.id === docId; })[0];
+  if (!doc) return Promise.resolve();
+  return BotDb.get("doc_blobs", doc.sha256).then(function (rec) {
+    if (!rec) return;
+    var url = URL.createObjectURL(rec.blob);
+    var a = document.createElement("a");
+    a.href = url; a.download = doc.original_name;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  });
+}
+
+function superseded_upload(docId, file) {
+  if (!App.botEnabled) {
+    // F-9: 停止スイッチが有効なあいだは差し替え（＝資料の追加の一種）も受け付けない。
+    logUpload("err", "「止める」が有効なため、差し替えを受け付けていません。");
+    return Promise.resolve(null);
+  }
+  var oldDoc = App.documents.filter(function (d) { return d.id === docId; })[0];
+  if (!oldDoc) return Promise.resolve();
+  /* R-1（第3周）: 受付（ingestOneFile）と対称に、差替えも容量の歯止めを
+   * 先頭でかける。差替えも資料追加の一種のため（docs/30 §3-4）。 */
+  return checkQuotaHeadroom(file.size).then(function (headroom) {
+    if (!headroom.ok) { throw new Error(headroom.message); }
+    return file.arrayBuffer().then(function (buf) {
+      return sha256Hex(buf).then(function (sha) {
+        var bytes = new Uint8Array(buf);
+        var cls = classifyBytes(bytes, file.name);
+        return BotDb.put("doc_blobs", { sha256: sha, blob: file }).then(function () {
+          var now = nowIso();
+          var newDoc = {
+            case_link_id: oldDoc.case_link_id,
+            original_name: file.name,
+            display_name: file.name,
+            sha256: sha,
+            bytes: file.size,
+            mime: file.type || "",
+            kind: cls.kind,
+            version: (oldDoc.version || 1) + 1,
+            doc_kind: oldDoc.doc_kind || "要確認",
+            doc_date: "不明",
+            source: "upload",
+            uploaded_by: "local-user",
+            uploaded_at: now,
+            status: cls.status,
+            content_readable: cls.status === "readable", // F-7: superseded 後もプレビュー可否を保持
+            unreadable_reason: cls.reason || null,
+            supersedes_document_id: oldDoc.id,
+          };
+          return BotDb.supersedeTransaction(oldDoc, newDoc).then(function (newId) {
+            logUpload("ok", file.name + " … 差し替えました（旧: 資料ID " + oldDoc.id + " → 新: 資料ID " + newId + " ・ 版 " + newDoc.version + "）");
+            return refreshDocuments().then(function () { openPreview(newId); return newId; });
+          });
+        });
+      });
+    });
+  })["catch"](function (err) {
+    // R-1（第3周）: checkQuotaHeadroom の事前ブロックも実際の QuotaExceededError も、
+    // ingestOneFile と同じく握りつぶさず1件の失敗として扱う（F-3・F-10 と対称に）。
+    var msg = String((err && err.name) ? err.name + ": " : "") + String(err && err.message || err);
+    logUpload("err", file.name + " … 差し替えに失敗しました: " + msg);
+    return recordFailedRun(oldDoc.case_link_id, file.name, msg).then(function () {
+      return { outcome: "error", error: msg };
+    });
+  });
+}
+
+/* ==========================================================================
+ * 10. 設定・停止スイッチ・容量表示
+ * ========================================================================= */
+function loadSettings() {
+  return BotDb.getAll("settings").then(function (rows) {
+    rows.forEach(function (r) { App.settingsCache[r.key] = r.value; });
+    App.botEnabled = App.settingsCache.bot_enabled !== false; // 既定 true
+    /* F-4: settings.write_enabled（既定 false）。docs/30 §8-1・指示書 §12
+     * 「初期状態は検証環境・書込みなし」。今回は読み込むだけで、書込みの
+     * 制御には使わない（ボット自身のDBへの読み書きはこの対象外）。 */
+    App.writeEnabled = App.settingsCache.write_enabled === true; // 既定 false
+    applyStopUi();
+  });
+}
+function saveSetting(key, value) {
+  App.settingsCache[key] = value;
+  return BotDb.put("settings", { key: key, value: value });
+}
+function applyStopUi() {
+  $('[data-action="bot-stop-toggle"]').checked = !App.botEnabled;
+  $('[data-action="bot-stopped-banner"]').hidden = App.botEnabled;
+  $('[data-action="bot-dropzone"]').classList.toggle("disabled", !App.botEnabled);
+  $('[data-action="bot-file-input"]').disabled = !App.botEnabled;
+  $('[data-action="bot-pick-files"]').disabled = !App.botEnabled;
+}
+
+function refreshStorageEstimate() {
+  if (!navigator.storage || !navigator.storage.estimate) {
+    $('[data-action="bot-storage-detail"]').textContent = "この環境では計測できません（navigator.storage.estimate 非対応）。";
+    return Promise.resolve(null);
+  }
+  return navigator.storage.estimate().then(function (est) {
+    var usage = est.usage || 0, quota = est.quota || 0;
+    var pct = quota ? Math.min(100, (usage / quota) * 100) : 0;
+    $('[data-action="bot-storage-detail"]').textContent =
+      "使用中 " + formatBytes(usage) + " / 上限目安 " + formatBytes(quota) + "（" + pct.toFixed(1) + "%）";
+    $('[data-action="bot-storage-bar"]').style.width = pct.toFixed(1) + "%";
+    $('[data-testid="storage-info"]').textContent = "容量: " + formatBytes(usage) + " / " + formatBytes(quota);
+    if (quota && usage / quota > 0.9) {
+      $('[data-action="bot-storage-detail"]').textContent += "　※ 残りが少なくなっています。";
+    }
+    return est;
+  })["catch"](function (err) {
+    $('[data-action="bot-storage-detail"]').textContent = "計測に失敗しました: " + err;
+    return null;
+  });
+}
+
+function runPersistOnce() {
+  if (!navigator.storage || !navigator.storage.persist) {
+    $('[data-action="bot-persist-status"]').textContent = "この環境では永続化を要求できません（navigator.storage.persist 非対応）。";
+    return saveSetting("persist_result", null);
+  }
+  return navigator.storage.persist().then(function (granted) {
+    $('[data-action="bot-persist-status"]').textContent = "永続化の要求結果: " + (granted ? "許可されました" : "許可されませんでした（それでも消える可能性があります）");
+    return saveSetting("persist_result", granted);
+  });
+}
+
+/* ==========================================================================
+ * 11. U-3 / U-4 / U-7 実測（診断ページ・本番導線からは出さない）
+ * ========================================================================= */
+var DiagProbe = (function () {
+  /* U-4 で確かめる 11 の型。それぞれ 1 フィールドだけ代表を選び、
+   * 値を入れて input/change を発火し、__app.state.deal[key] を読み直す。
+   * 保存ボタンは押さない（結果は破棄される）。 */
+  var TYPES_TO_PROBE = ["text", "yesno", "textarea", "select", "money", "date", "number", "percent", "yearmonth", "time", "checkbox"];
+
+  function pickSampleValue(type, options) {
+    switch (type) {
+      case "text": return "診断用テキスト";
+      case "textarea": return "診断用テキスト（複数行）";
+      case "money": return "12345";
+      case "number": return "7";
+      case "percent": return "1.5";
+      case "date": return "2026-01-15";
+      case "yearmonth": return "2026-01";
+      case "time": return "09:30";
+      case "yesno": return "あり";
+      case "select": return (options && options.length) ? options[0] : "";
+      case "checkbox": return true;
+      default: return null;
+    }
+  }
+
+  function run(targetUrl) {
+    var out = { measured_at: nowIso(), note: "この容器の Chromium で測った結果。本番の結果ではない（docs/33 U-3・U-4・U-7）。",
+      u7_databases_api: { supported: typeof indexedDB.databases === "function" },
+      u3: { app_present: false, buildJuusetsuHtml_is_function: false, schema_is_undefined: null, error: null },
+      u4: { types: [] } };
+
+    var databasesProbe = (out.u7_databases_api.supported)
+      ? indexedDB.databases().then(function (list) { out.u7_databases_api.list_length = list.length; out.u7_databases_api.error = null; })
+        ["catch"](function (e) { out.u7_databases_api.error = String(e); })
+      : Promise.resolve();
+
+    return databasesProbe.then(function () {
+      return new Promise(function (resolve) {
+        var iframe = $('[data-action="bot-diag-iframe"]');
+        var done = false;
+        function finish() {
+          if (done) return; done = true;
+          resolve(out);
+        }
+        iframe.onload = function () {
+          try {
+            var win = iframe.contentWindow;
+            var doc = iframe.contentDocument;
+            out.u3.app_present = !!(win && win.__app);
+            out.u3.buildJuusetsuHtml_is_function = !!(win && typeof win.buildJuusetsuHtml === "function");
+            out.u3.schema_is_undefined = !(win && typeof win.SCHEMA !== "undefined");
+            if (!win || !win.__app) { finish(); return; }
+            /* 「新規作成」ボタンをクリックする＝既存UIの通常操作（既存の書込み系4関数は呼ばない）。 */
+            var newBtn = doc.querySelector('[data-action="new-deal"]');
+            if (newBtn) { newBtn.click(); }
+            setTimeout(function () {
+              var schema = win.__app.schema;
+              var fieldsByType = {};
+              (schema.layout || []).forEach(function (e) {
+                if (e.kind !== "field" || e.readonly) return;
+                if (!fieldsByType[e.type]) fieldsByType[e.type] = e;
+              });
+              TYPES_TO_PROBE.forEach(function (type) {
+                var def = fieldsByType[type];
+                var row = { type: type, field_key: def ? def.key : null, found_field: !!def };
+                if (!def) { out.u4.types.push(row); return; }
+                var el = doc.querySelector('[data-scope="deal"][data-key="' + def.key + '"]');
+                row.input_element_found = !!el;
+                if (!el) { out.u4.types.push(row); return; }
+                var value = pickSampleValue(type, def.options);
+                row.value_attempted = value;
+                try {
+                  if (type === "checkbox") {
+                    el.checked = !!value;
+                  } else if (type === "select" || type === "yesno") {
+                    el.value = value;
+                  } else {
+                    el.value = String(value);
+                  }
+                  el.dispatchEvent(new Event("input", { bubbles: true }));
+                  el.dispatchEvent(new Event("change", { bubbles: true }));
+                } catch (evErr) {
+                  row.dispatch_error = String(evErr);
+                }
+                try {
+                  var after = win.__app.state.deal[def.key];
+                  row.state_value_after = after;
+                  row.changed = (type === "checkbox") ? (after === !!value) : (String(after) === String(value) || (type === "money" && Number(after) === Number(value)));
+                } catch (readErr) {
+                  row.read_error = String(readErr);
+                }
+                out.u4.types.push(row);
+              });
+              /* 値は保存しない。ページ全体を後で reload しない限り
+               * この iframe 内の状態は残るが、既存システムの保存関数は
+               * 一度も呼んでいないので既存 DB には一切書かれていない。 */
+              finish();
+            }, 400);
+          } catch (e) {
+            out.u3.error = String(e && e.message || e);
+            finish();
+          }
+        };
+        iframe.src = targetUrl;
+        setTimeout(finish, 15000); // 安全弁
+      });
+    });
+  }
+
+  return { run: run };
+})();
+
+function showDiagnosticsIfHash() {
+  var shown = location.hash === "#bot-diagnostics";
+  $("#bot-diagnostics").classList.toggle("shown", shown);
+}
+
+/* ==========================================================================
+ * 12. イベント結線
+ * ========================================================================= */
+function wireEvents() {
+  var dz = $('[data-action="bot-dropzone"]');
+  dz.addEventListener("dragover", function (e) { e.preventDefault(); if (App.botEnabled) dz.classList.add("drag"); });
+  dz.addEventListener("dragleave", function () { dz.classList.remove("drag"); });
+  dz.addEventListener("drop", function (e) {
+    e.preventDefault(); dz.classList.remove("drag");
+    if (!App.botEnabled) return;
+    ingestFiles(e.dataTransfer.files, App.currentCaseLinkId);
+  });
+  $('[data-action="bot-pick-files"]').addEventListener("click", function () {
+    if (!App.botEnabled) return;
+    $('[data-action="bot-file-input"]').click();
+  });
+  $('[data-action="bot-file-input"]').addEventListener("change", function (e) {
+    ingestFiles(e.target.files, App.currentCaseLinkId).then(function () { e.target.value = ""; });
+  });
+
+  $('[data-action="bot-case-select"]').addEventListener("change", function (e) {
+    App.currentCaseLinkId = Number(e.target.value);
+    renderDocTable();
+  });
+  $('[data-action="bot-scope-all-toggle"]').addEventListener("change", function (e) {
+    App.scopeAll = e.target.checked;
+    renderDocTable();
+  });
+  $('[data-action="bot-case-new"]').addEventListener("click", function () {
+    $('[data-action="bot-case-new-form"]').hidden = false;
+  });
+  $('[data-action="bot-case-new-cancel"]').addEventListener("click", function () {
+    $('[data-action="bot-case-new-form"]').hidden = true;
+  });
+  $('[data-action="bot-case-create-confirm"]').addEventListener("click", function () {
+    var label = $('[data-action="bot-case-label-input"]').value.trim() || "未定";
+    var dealSelVal = $('[data-action="bot-case-deal-select"]').value;
+    var manualVal = $('[data-action="bot-case-deal-manual"]').value;
+    var dealId = null;
+    if (manualVal !== "") dealId = Number(manualVal);
+    else if (dealSelVal !== "") dealId = Number(dealSelVal);
+    var snapshot = null;
+    if (dealId != null) {
+      var found = App.existingDeals.filter(function (d) { return d.id === dealId; })[0];
+      if (found) snapshot = { id: found.id, contract_date: found.contract_date, price: found.price, updated_at: found.updated_at };
+    }
+    var now = nowIso();
+    BotDb.add("case_links", { deal_id: dealId, deal_snapshot: snapshot, label: label, created_at: now, updated_at: now })
+      .then(function (id) {
+        return BotDb.getAll("case_links").then(function (rows) {
+          App.caseLinks = rows; App.currentCaseLinkId = id;
+          renderCaseSelect();
+          $('[data-action="bot-case-new-form"]').hidden = true;
+          $('[data-action="bot-case-label-input"]').value = "";
+          $('[data-action="bot-case-deal-manual"]').value = "";
+          renderDocTable();
+        });
+      });
+  });
+
+  $('[data-action="bot-doc-tbody"]').addEventListener("click", function (e) {
+    var quickBtn = e.target.closest('[data-action="bot-doc-quickdl"]');
+    if (quickBtn) { downloadDoc(Number(quickBtn.getAttribute("data-doc-id"))); return; }
+    var row = e.target.closest('[data-action="bot-doc-row"]');
+    if (row) { openPreview(Number(row.getAttribute("data-doc-id"))); }
+  });
+  $('[data-action="bot-doc-preview-close"]').addEventListener("click", closePreview);
+  $('[data-action="bot-doc-download"]').addEventListener("click", function () {
+    if (App.selectedDocId != null) downloadDoc(App.selectedDocId);
+  });
+  $('[data-action="bot-doc-supersede"]').addEventListener("click", function () {
+    if (!App.botEnabled) return; // F-9: 停止中は差し替えの入力ダイアログすら開かない
+    if (App.selectedDocId != null) $('[data-action="bot-supersede-input"]').click();
+  });
+  $('[data-action="bot-supersede-input"]').addEventListener("change", function (e) {
+    var f = e.target.files && e.target.files[0];
+    if (f && App.selectedDocId != null) superseded_upload(App.selectedDocId, f);
+    e.target.value = "";
+  });
+
+  $('[data-action="bot-stop-toggle"]').addEventListener("change", function (e) {
+    App.botEnabled = !e.target.checked;
+    saveSetting("bot_enabled", App.botEnabled).then(applyStopUi);
+  });
+
+  $('[data-action="bot-diag-run"]').addEventListener("click", function () {
+    var url = $('[data-action="bot-diag-url"]').value || "../";
+    $('[data-action="bot-diag-output"]').value = "計測中…";
+    DiagProbe.run(url).then(function (result) {
+      $('[data-action="bot-diag-output"]').value = JSON.stringify(result, null, 2);
+      window.__bot.lastProbeResult = result;
+    });
+  });
+
+  window.addEventListener("hashchange", showDiagnosticsIfHash);
+}
+
+/* ==========================================================================
+ * 12B. content_readable への移行（第3周 R-3）
+ * 第1周版で登録済みの行には content_readable 列が無い（＝ undefined）。
+ * classifyBytes の分岐は「readable のときだけ reason が空文字（＝
+ * unreadable_reason が null）になる」「readable のときだけ kind が
+ * image/png・image/jpeg になり得る」という不変を保っているため、
+ * status が supersede で上書きされていても元の判定を復元できる。
+ * ========================================================================= */
+function deriveContentReadable(doc) {
+  if (doc.kind === "image/png" || doc.kind === "image/jpeg") return true; // classifyBytes ではこの2種は readable のときにしか付かない
+  if (doc.status === "readable") return true;
+  if (doc.status === "encrypted" || doc.status === "unreadable" || doc.status === "unsupported") return false;
+  // status が "superseded" 等で元の判定が失われている行は unreadable_reason
+  // の有無で復元する（readable のときだけ reason が空 = unreadable_reason が null）。
+  return !doc.unreadable_reason;
+}
+function migrateContentReadable() {
+  return BotDb.getAll("documents").then(function (docs) {
+    var targets = docs.filter(function (d) { return d.content_readable === undefined; });
+    // version は上げない・既存行は消さない：同じ id へ put するだけの1回限りの補完。
+    // 補った行は content_readable が undefined でなくなるため、次回起動時は対象が無くなる。
+    return Promise.all(targets.map(function (d) {
+      d.content_readable = deriveContentReadable(d);
+      return BotDb.put("documents", d);
+    }));
+  });
+}
+
+/* ==========================================================================
+ * 13. 起動
+ * ========================================================================= */
+function boot() {
+  wireEvents();
+  showDiagnosticsIfHash();
+  return BotDb.open().then(function () {
+    return migrateContentReadable();
+  }).then(function () {
+    return loadSettings();
+  }).then(function () {
+    return ExistingDb.openReadOnlyIfPresent();
+  }).then(function () {
+    var st = ExistingDb.status();
+    var msg;
+    if (!st.databases_api_supported) {
+      msg = "既存案件の一覧を取れませんでした（indexedDB.databases 非対応）。案件IDは手入力してください。";
+    } else if (st.present === false) {
+      msg = "既存案件は 0 件です（まだ何も保存されていません）。このまま「未定」で資料を受け付けられます。";
+    } else if (st.opened) {
+      msg = "既存案件を読み取りました（DB version " + st.version + "・ストア " + st.store_count + " 本）。";
+    } else {
+      msg = "既存案件の一覧を取れませんでした" + (st.error ? "（" + st.error + "）" : "") + "。案件IDは手入力してください。";
+    }
+    $('[data-action="bot-existing-db-status"]').textContent = msg;
+    if (st.opened) {
+      return ExistingDb.readDeals().then(function (deals) {
+        App.existingDeals = deals.sort(function (a, b) { return (b.updated_at || "").localeCompare(a.updated_at || ""); });
+      });
+    }
+    return null;
+  }).then(function () {
+    /* 起動時の孤児 doc_blobs 掃除（documents に対応が無い blob を消す）。
+     * ボット自身のDBの中だけの後始末であり、既存DBには一切触れない。 */
+    return Promise.all([BotDb.getAll("documents"), BotDb.getAll("doc_blobs")]).then(function (pair) {
+      var docs = pair[0], blobs = pair[1];
+      var used = {}; docs.forEach(function (d) { used[d.sha256] = true; });
+      var orphans = blobs.filter(function (b) { return !used[b.sha256]; });
+      return Promise.all(orphans.map(function (b) { return BotDb.del("doc_blobs", b.sha256); }));
+    });
+  }).then(function () {
+    return ensureDefaultCaseLink();
+  }).then(function () {
+    renderCaseSelect();
+    return refreshDocuments();
+  }).then(function () {
+    return refreshStorageEstimate();
+  }).then(function () {
+    return runPersistOnce();
+  });
+}
+
+/* ==========================================================================
+ * 14. テスト用フック（Sonnet5 の検証で使用。ボット自身のものだけを公開する。
+ *     既存 __app には一切触れない代わり方をしている）。
+ * ========================================================================= */
+window.__bot = {
+  version: BOT_VERSION,
+  App: App,
+  ExistingDb: ExistingDb,
+  BotDb: BotDb,
+  classifyBytes: classifyBytes,
+  ingestFiles: ingestFiles,
+  refreshDocuments: refreshDocuments,
+  refreshStorageEstimate: refreshStorageEstimate,
+  runPersistOnce: runPersistOnce,
+  runDiagProbe: DiagProbe.run,
+  sha256Hex: sha256Hex,
+  lastProbeResult: null,
+  boot: boot,
+  deriveContentReadable: deriveContentReadable,
+  migrateContentReadable: migrateContentReadable,
+};
+
+window.addEventListener("DOMContentLoaded", function () {
+  boot()["catch"](function (err) {
+    console.error("boot failed", err);
+    var el = document.createElement("div");
+    el.className = "banner stopped";
+    el.textContent = "起動に失敗しました: " + (err && err.message || err);
+    document.querySelector(".container").prepend(el);
+  });
+});
+</script>
+<!-- PRESERVED:SCHEMA:BEGIN -->
+{"preserved_section":"SCHEMA","meaning":"本番 index.html の SCHEMA 区間の控え。ボットはこの区間を持たず、値も変えない","product_file":"index.html","product_file_sha256":"2ae325f15459c3cd5b071007596637d19c020d056447e18cd892e3f8ae3e0a26","section_begin":"const SCHEMA =","section_end":";\n","section_bytes":104708,"section_sha256":"43a61d88e4040d863d1ed71f4f78228d2f94fd10c9dc923f7d1bfa8a3cc34f71","same_bytes_as":"docs/02_項目定義_schema_v0.6.json"}
+<!-- PRESERVED:SCHEMA:END -->
+<!-- PRESERVED:GEOMETRY:BEGIN -->
+{"preserved_section":"GEOMETRY","meaning":"本番 index.html の JUUSETSU_GEOMETRY 区間の控え。ボットはこの区間を持たず、値も変えない","product_file":"index.html","product_file_sha256":"2ae325f15459c3cd5b071007596637d19c020d056447e18cd892e3f8ae3e0a26","section_begin":"const JUUSETSU_GEOMETRY = ","section_end":";\n","section_bytes":536627,"section_sha256":"4089a190239e2041c7411574726790768b87b91f7032c956eb86d32bb44889cb"}
+<!-- PRESERVED:GEOMETRY:END -->
+</body>
+</html>
